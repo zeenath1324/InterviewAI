@@ -1,0 +1,7 @@
+{
+  "name": "InterviewAI – AI Interview Coach",
+  "description": "Your AI-powered interview coach helping freshers practice job interviews with generative questions, real-time rubric feedback, and placement readiness scores.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
