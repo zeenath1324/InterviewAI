@@ -11,8 +11,9 @@ import {
   Copy, 
   ArrowRight, 
   AlertCircle,
-  BookOpen,
-  RotateCcw
+  MessageSquare,
+  FastForward,
+  CornerDownRight
 } from 'lucide-react';
 import { 
   AnswerEvaluation, 
@@ -33,11 +34,23 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
   onFinishInterview,
   onExitSession,
 }) => {
+  // Use selectedQuestionCount consistently across all session logic
+  const selectedQuestionCount = config.selectedQuestionCount || config.totalQuestions || 10;
+
   // Session State
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(1);
   const [currentQuestion, setCurrentQuestion] = useState<QuestionData | null>(null);
   const [candidateAnswer, setCandidateAnswer] = useState<string>('');
   const [history, setHistory] = useState<QAHistoryItem[]>([]);
+  const historyRef = useRef<QAHistoryItem[]>([]);
+
+  // Follow-up flow state
+  const [pendingFollowUp, setPendingFollowUp] = useState<{
+    question: string;
+    reason: string;
+    category?: string;
+  } | null>(null);
+  const [isAnsweringFollowUp, setIsAnsweringFollowUp] = useState<boolean>(false);
 
   // UI States
   const [isLoadingQuestion, setIsLoadingQuestion] = useState<boolean>(true);
@@ -58,9 +71,9 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
   const [secondsElapsed, setSecondsElapsed] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load question when index changes
+  // Load question when question index changes
   useEffect(() => {
-    loadNextQuestion(currentQuestionIndex);
+    loadNextMainQuestion(currentQuestionIndex);
   }, [currentQuestionIndex]);
 
   // Track elapsed time per question
@@ -75,7 +88,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [currentQuestionIndex]);
+  }, [currentQuestionIndex, isAnsweringFollowUp]);
 
   // Cleanup speech synthesis on unmount
   useEffect(() => {
@@ -89,12 +102,29 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
     };
   }, []);
 
-  const loadNextQuestion = async (index: number) => {
+  // Speak question automatically if voiceMode is on
+  const speakText = (text: string) => {
+    if (!('speechSynthesis' in window) || !text) return;
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const loadNextMainQuestion = async (index: number) => {
     setIsLoadingQuestion(true);
     setErrorMessage(null);
     setCurrentEvaluation(null);
     setCandidateAnswer('');
     setShowHints(false);
+    setPendingFollowUp(null);
+    setIsAnsweringFollowUp(false);
 
     try {
       const prevContext = history.map((item) => ({
@@ -108,12 +138,17 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         difficulty: config.difficulty,
         candidateName: config.candidateName,
         questionIndex: index,
-        totalQuestions: config.totalQuestions,
+        totalQuestions: selectedQuestionCount,
+        mode: config.mode,
         focusArea: config.focusArea,
         previousQAs: prevContext,
+        resumeData: config.resumeData,
       });
 
       setCurrentQuestion(qData);
+      if (config.voiceMode) {
+        speakText(qData.question);
+      }
     } catch (err: any) {
       console.error('Error fetching question:', err);
       setErrorMessage('Failed to generate question. Please try reloading.');
@@ -122,34 +157,24 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
     }
   };
 
-  // Text to Speech
+  // Toggle speech for current question
   const toggleSpeech = () => {
-    if (!('speechSynthesis' in window) || !currentQuestion) return;
-
+    if (!currentQuestion) return;
     if (isSpeaking) {
       window.speechSynthesis.cancel();
       setIsSpeaking(false);
-      return;
+    } else {
+      speakText(currentQuestion.question);
     }
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(currentQuestion.question);
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-
-    setIsSpeaking(true);
-    window.speechSynthesis.speak(utterance);
   };
 
-  // Speech Recognition (Dictation)
+  // Toggle voice recognition
   const toggleSpeechRecognition = () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser. You can type directly into the text box.');
+      alert('Speech recognition is not supported in this browser. Please type directly into the answer box.');
       return;
     }
 
@@ -220,6 +245,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         answer: trimmed,
         questionNumber: currentQuestionIndex,
         expectedKeyPoints: currentQuestion.expectedKeyPoints,
+        category: currentQuestion.category,
       });
 
       setCurrentEvaluation(evalResult);
@@ -230,9 +256,21 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         answer: trimmed,
         evaluation: evalResult,
         timeSpentSeconds: secondsElapsed,
+        isFollowUp: isAnsweringFollowUp,
       };
 
-      setHistory((prev) => [...prev, historyItem]);
+      setHistory((prev) => {
+        const updated = [...prev, historyItem];
+        historyRef.current = updated;
+        return updated;
+      });
+
+      // Check if a dynamic follow-up was generated
+      if (evalResult.followUpQuestion && !isAnsweringFollowUp) {
+        setPendingFollowUp(evalResult.followUpQuestion);
+      } else {
+        setPendingFollowUp(null);
+      }
     } catch (err: any) {
       console.error('Answer evaluation failed:', err);
       setErrorMessage('Error evaluating response. Please try again.');
@@ -241,12 +279,87 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
     }
   };
 
-  // Next Question
-  const handleProceedNext = () => {
-    if (currentQuestionIndex < config.totalQuestions) {
+  // Handle Skip Question
+  const handleSkipQuestion = () => {
+    if (!currentQuestion) return;
+    const skipItem: QAHistoryItem = {
+      questionIndex: currentQuestionIndex,
+      question: currentQuestion,
+      answer: '[Question Skipped by Candidate]',
+      evaluation: {
+        score: 0,
+        technicalScore: 0,
+        communicationScore: 0,
+        problemSolvingScore: 0,
+        confidenceScore: 0,
+        strengths: ['Acknowledged knowledge boundary proactively.'],
+        weaknesses: ['Question was skipped without an attempted explanation.'],
+        suggestions: ['In real interviews, even if unsure, attempt to break down the problem or state what you do know.'],
+        sampleAnswer: 'A good approach when encountering an unfamiliar question is to clarify the requirements and outline your first-principles thought process.',
+        feedbackSummary: 'Skipped question recorded. Review the topic during preparation.',
+      },
+      timeSpentSeconds: secondsElapsed,
+      skipped: true,
+    };
+
+    setHistory((prev) => {
+      const updated = [...prev, skipItem];
+      historyRef.current = updated;
+      return updated;
+    });
+
+    if (currentQuestionIndex < selectedQuestionCount) {
       setCurrentQuestionIndex((prev) => prev + 1);
     } else {
-      onFinishInterview(history);
+      const finalItems = historyRef.current.length > 0 ? historyRef.current : [...history, skipItem];
+      onFinishInterview(finalItems);
+    }
+  };
+
+  // Transition to answering the dynamic follow-up question
+  const handleStartFollowUp = () => {
+    if (!pendingFollowUp || !currentQuestion) return;
+
+    const followUpQuestionData: QuestionData = {
+      id: `${currentQuestion.id}-followup`,
+      question: pendingFollowUp.question,
+      category: pendingFollowUp.category || currentQuestion.category,
+      interviewerNote: pendingFollowUp.reason || `Follow-up to your previous answer on ${currentQuestion.question}`,
+      hints: ['Build upon what you shared in your previous answer.', 'Provide a specific example or technical detail.'],
+      expectedKeyPoints: ['Demonstrates deep practical knowledge', 'Connects back to previous claim'],
+      isFollowUp: true,
+      parentQuestion: currentQuestion.question,
+      parentAnswerSnippet: candidateAnswer.slice(0, 100),
+    };
+
+    setCurrentQuestion(followUpQuestionData);
+    setIsAnsweringFollowUp(true);
+    setCurrentEvaluation(null);
+    setCandidateAnswer('');
+    setPendingFollowUp(null);
+
+    if (config.voiceMode) {
+      speakText(followUpQuestionData.question);
+    }
+  };
+
+  // Next Question
+  const handleProceedNext = () => {
+    if (currentQuestionIndex < selectedQuestionCount) {
+      setCurrentQuestionIndex((prev) => prev + 1);
+    } else {
+      const finalHistory = historyRef.current.length > 0 ? historyRef.current : history;
+      onFinishInterview(finalHistory);
+    }
+  };
+
+  // End interview early button
+  const handleEndInterviewEarly = () => {
+    const activeHistory = historyRef.current.length > 0 ? historyRef.current : history;
+    if (activeHistory.length > 0) {
+      onFinishInterview(activeHistory);
+    } else {
+      onExitSession();
     }
   };
 
@@ -265,7 +378,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
   };
 
   const wordCount = candidateAnswer.trim() ? candidateAnswer.trim().split(/\s+/).length : 0;
-  const progressPercent = Math.round((currentQuestionIndex / config.totalQuestions) * 100);
+  const progressPercent = Math.min(100, Math.round((currentQuestionIndex / selectedQuestionCount) * 100));
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
@@ -281,21 +394,34 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
               {config.difficulty}
             </span>
             <span className="text-slate-500">·</span>
+            <span className="text-slate-400 font-mono capitalize">
+              Mode: {config.mode}
+            </span>
+            <span className="text-slate-500">·</span>
             <span className="text-slate-400">
               Candidate: <span className="text-slate-200 font-semibold">{config.candidateName}</span>
             </span>
           </div>
 
-          <div className="flex items-center gap-4 text-xs">
+          <div className="flex items-center gap-3 text-xs">
             <div className="flex items-center gap-1.5 font-mono text-slate-300">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
               <span>{formatTime(secondsElapsed)}</span>
             </div>
+
+            <button
+              onClick={handleEndInterviewEarly}
+              className="text-slate-400 hover:text-indigo-300 transition-colors"
+              title="Finish interview and generate report with questions answered so far"
+            >
+              End Interview
+            </button>
+
             <button
               onClick={() => setShowQuitConfirm(true)}
-              className="text-slate-400 hover:text-slate-200 transition-colors"
+              className="text-slate-400 hover:text-rose-400 transition-colors"
             >
-              Exit Session
+              Quit
             </button>
           </div>
         </div>
@@ -304,7 +430,16 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>
-              Question <strong className="text-white">{currentQuestionIndex}</strong> of {config.totalQuestions}
+              {isAnsweringFollowUp ? (
+                <span className="text-indigo-400 font-medium flex items-center gap-1">
+                  <CornerDownRight className="w-3 h-3" />
+                  Follow-up Question (Parent Q{currentQuestionIndex})
+                </span>
+              ) : (
+                <>
+                  Question <strong className="text-white">{currentQuestionIndex}</strong> of {selectedQuestionCount}
+                </>
+              )}
             </span>
             <span className="font-mono">{progressPercent}%</span>
           </div>
@@ -323,7 +458,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-sm w-full space-y-4 text-left">
             <h3 className="text-sm font-bold text-white">Exit Interview Session?</h3>
             <p className="text-xs text-slate-300">
-              Any progress made during this session will be lost. Are you sure you want to return to the home screen?
+              You will lose this active session and return to the home screen.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
               <button
@@ -336,7 +471,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
                 onClick={onExitSession}
                 className="px-3 py-1.5 text-xs text-white bg-rose-600 hover:bg-rose-500 rounded-lg"
               >
-                Exit Now
+                Exit
               </button>
             </div>
           </div>
@@ -348,14 +483,21 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
         {isLoadingQuestion ? (
           <div className="py-12 flex flex-col items-center justify-center space-y-2">
             <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-slate-400">Loading question...</p>
+            <p className="text-xs text-slate-400">Loading interview question...</p>
           </div>
         ) : currentQuestion ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
-                {currentQuestion.category || 'Technical Question'}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
+                  {currentQuestion.category || 'Interview Question'}
+                </span>
+                {currentQuestion.isFollowUp && (
+                  <span className="text-[10px] font-mono text-indigo-400 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/80">
+                    Follow-up Question
+                  </span>
+                )}
+              </div>
 
               <button
                 onClick={toggleSpeech}
@@ -386,7 +528,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
 
             {currentQuestion.interviewerNote && (
               <div className="text-xs text-slate-300 bg-slate-950/70 border border-slate-800 rounded-lg p-3">
-                <span className="font-semibold text-indigo-400 block mb-0.5">Interviewer Context:</span>
+                <span className="font-semibold text-indigo-400 block mb-0.5">Interviewer Note:</span>
                 <span>{currentQuestion.interviewerNote}</span>
               </div>
             )}
@@ -400,7 +542,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
                   className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
                 >
                   <HelpCircle className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>{showHints ? 'Hide Hints' : 'Need a hint? Click to reveal topic guidance'}</span>
+                  <span>{showHints ? 'Hide Hints' : 'Need guidance? Click to reveal hints'}</span>
                 </button>
 
                 {showHints && (
@@ -415,7 +557,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
                     </div>
                     {currentQuestion.expectedKeyPoints && (
                       <div className="pt-2 border-t border-slate-850">
-                        <strong className="text-slate-300 block mb-1">Key concepts interviewers look for:</strong>
+                        <strong className="text-slate-300 block mb-1">Key points interviewers look for:</strong>
                         <div className="flex flex-wrap gap-1">
                           {currentQuestion.expectedKeyPoints.map((kp, i) => (
                             <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300">
@@ -434,7 +576,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
           <div className="py-6 text-center text-xs text-slate-400 space-y-2">
             <p>Could not load the question.</p>
             <button
-              onClick={() => loadNextQuestion(currentQuestionIndex)}
+              onClick={() => loadNextMainQuestion(currentQuestionIndex)}
               className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg"
             >
               Retry
@@ -449,14 +591,14 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                Your Answer
+                Your Response
               </label>
               <button
                 type="button"
                 onClick={() => setShowStarGuide(!showStarGuide)}
                 className="text-xs text-indigo-400 hover:text-indigo-300 font-medium underline"
               >
-                {showStarGuide ? 'Hide STAR Guide' : 'STAR Method Formula'}
+                {showStarGuide ? 'Hide STAR Formula' : 'STAR Method Formula'}
               </button>
             </div>
 
@@ -479,7 +621,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
               ) : (
                 <>
                   <Mic className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Dictate Answer</span>
+                  <span>Voice Dictate</span>
                 </>
               )}
             </button>
@@ -516,7 +658,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
             }}
             disabled={isLoadingQuestion || isEvaluating}
             rows={7}
-            placeholder="Type your answer here... Be clear, reference relevant tools or concepts, and explain your reasoning as you would to a senior engineer."
+            placeholder="Type your answer here... Be clear, reference relevant tools or concepts, and explain your reasoning as you would to an interviewer."
             className="w-full p-3.5 bg-slate-950 border border-slate-800 rounded-lg text-white placeholder-slate-500 text-sm leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors resize-y"
           />
 
@@ -534,6 +676,18 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Skip Question Button */}
+              <button
+                type="button"
+                onClick={handleSkipQuestion}
+                disabled={isEvaluating}
+                className="px-3 py-2 text-xs text-slate-400 hover:text-white rounded-lg hover:bg-slate-850 transition-colors flex items-center gap-1"
+                title="Skip this question and move to the next topic"
+              >
+                <FastForward className="w-3.5 h-3.5" />
+                <span>Skip</span>
+              </button>
+
               {candidateAnswer.length > 0 && (
                 <button
                   type="button"
@@ -582,7 +736,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
             <div>
               <span className="text-[11px] font-mono uppercase text-indigo-400 block mb-1">
-                Evaluation Complete · Question {currentQuestionIndex} of {config.totalQuestions}
+                Evaluation Complete · {isAnsweringFollowUp ? 'Follow-Up Evaluated' : `Question ${currentQuestionIndex} of ${config.totalQuestions}`}
               </span>
               <h3 className="text-lg font-bold text-white font-display">
                 Interviewer Score & Feedback
@@ -607,7 +761,7 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
             </div>
           </div>
 
-          {/* Recruiter Reaction Summary */}
+          {/* Feedback Summary */}
           {currentEvaluation.feedbackSummary && (
             <div className="p-3.5 rounded-lg bg-slate-950 border border-slate-850 text-xs sm:text-sm text-slate-300 italic">
               "{currentEvaluation.feedbackSummary}"
@@ -704,27 +858,67 @@ export const InterviewRoom: React.FC<InterviewRoomProps> = ({
             </p>
           </div>
 
-          {/* Action Row */}
-          <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-4">
-            <span className="text-xs text-slate-400">
-              {currentQuestionIndex < config.totalQuestions
-                ? `Proceeding to Question ${currentQuestionIndex + 1}`
-                : 'Final question completed'}
-            </span>
+          {/* DYNAMIC FOLLOW-UP PROMPT (Crucial Requirement) */}
+          {pendingFollowUp && !isAnsweringFollowUp && (
+            <div className="p-4 rounded-lg bg-slate-950 border border-indigo-500/40 space-y-3">
+              <div className="flex items-center gap-2 text-indigo-300 text-xs font-semibold">
+                <MessageSquare className="w-4 h-4 text-indigo-400" />
+                <span>Interviewer Generated a Follow-Up Question</span>
+              </div>
 
-            <button
-              type="button"
-              onClick={handleProceedNext}
-              className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1.5"
-            >
-              <span>
-                {currentQuestionIndex < config.totalQuestions
-                  ? 'Next Question'
-                  : 'View Final Readiness Report'}
+              <div className="text-xs text-slate-300 space-y-1">
+                <p className="font-semibold text-white">
+                  "{pendingFollowUp.question}"
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  {pendingFollowUp.reason}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleStartFollowUp}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <CornerDownRight className="w-3.5 h-3.5" />
+                  <span>Answer Follow-Up Question</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleProceedNext}
+                  className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-900 border border-slate-800 rounded-lg transition-colors"
+                >
+                  Skip Follow-Up & Proceed
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Standard Navigation Action Row (If no follow-up pending or answered) */}
+          {(!pendingFollowUp || isAnsweringFollowUp) && (
+            <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-4">
+              <span className="text-xs text-slate-400">
+                {currentQuestionIndex < selectedQuestionCount
+                  ? `Proceeding to Question ${currentQuestionIndex + 1}`
+                  : `All ${selectedQuestionCount} questions completed!`}
               </span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
+
+              <button
+                type="button"
+                onClick={handleProceedNext}
+                className="px-5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1.5"
+              >
+                <span>
+                  {currentQuestionIndex < selectedQuestionCount
+                    ? 'Next Question'
+                    : 'View Final Readiness Report'}
+                </span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

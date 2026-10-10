@@ -4,6 +4,8 @@ import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { PDFParse } from 'pdf-parse';
+import { QUESTION_BANK, getQuestionsForConfig, getNextUnusedBankQuestion } from './src/data/questionBank.ts';
 
 dotenv.config();
 
@@ -13,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({ limit: '15mb' }));
 
 // Initialize GoogleGenAI with proper User-Agent header as per skill guidelines
 const apiKey = process.env.GEMINI_API_KEY;
@@ -34,367 +36,87 @@ if (apiKey && apiKey !== 'MY_GEMINI_API_KEY') {
   }
 }
 
-// Fallback question database for robust offline/resilient experience
-const FALLBACK_QUESTIONS: Record<string, Record<string, Array<{ question: string; category: string; interviewerNote: string; expectedKeyPoints: string[] }>>> = {
-  'Software Developer': {
-    Beginner: [
-      {
-        question: "Can you explain the difference between synchronous and asynchronous programming in JavaScript or your language of choice, and describe a real-world scenario where you would use asynchronous handling?",
-        category: "Core Principles",
-        interviewerNote: "Take a moment to give a concrete everyday example like fetching data from an API or reading a file.",
-        expectedKeyPoints: ["Blocking vs non-blocking execution", "Event loop / Call stack / Callback queue", "Promises / async/await", "Real-world API network request example"]
-      },
-      {
-        question: "What is the difference between SQL and NoSQL databases, and how would you decide which one to use for a new university project?",
-        category: "System & Data Modeling",
-        interviewerNote: "Think about schema flexibility versus relational integrity and ACID guarantees.",
-        expectedKeyPoints: ["Structured tabular schemas vs flexible JSON document stores", "ACID transactions vs horizontal scalability", "JOIN queries vs embedded documents", "Project requirements rationale"]
-      },
-      {
-        question: "How do Git branches work, and what is your typical workflow when resolving a merge conflict with a teammate?",
-        category: "Version Control & Collaboration",
-        interviewerNote: "Walk me through the Git commands and the mindset you adopt when code conflicts arise.",
-        expectedKeyPoints: ["Branch pointers in Git", "Creating feature branches (git checkout -b / switch)", "Conflict markers (<<<<<<<, =======, >>>>>>>)", "Communicating with teammates before committing resolution"]
-      },
-      {
-        question: "Explain the concept of Object-Oriented Programming (OOP) principles — encapsulation, inheritance, polymorphism, and abstraction — with a simple practical example.",
-        category: "Software Design",
-        interviewerNote: "Using a single theme (like an Animal or Vehicle class) can make your explanation very cohesive.",
-        expectedKeyPoints: ["Encapsulation: hiding internal state with getters/setters", "Inheritance: code reuse through parent/child classes", "Polymorphism: method overriding or interfaces", "Abstraction: exposing only relevant interfaces"]
-      },
-      {
-        question: "What happens in the browser from the moment you type a URL (like google.com) and press Enter until the web page is fully rendered on your screen?",
-        category: "Web Architecture",
-        interviewerNote: "Structure your explanation into network steps, server response, and browser rendering pipeline.",
-        expectedKeyPoints: ["DNS lookup to resolve IP address", "TCP 3-way handshake & TLS negotiation", "HTTP GET request & server response", "DOM tree, CSSOM tree, Render tree, layout & painting"]
-      }
-    ],
-    Intermediate: [
-      {
-        question: "How do you detect and fix memory leaks or performance bottlenecks in a web application?",
-        category: "Performance & Profiling",
-        interviewerNote: "Focus on browser dev tools, heap snapshots, and common causes like orphaned event listeners.",
-        expectedKeyPoints: ["Browser performance tabs & heap snapshots", "Detached DOM elements & uncleared intervals", "Virtualization for long lists", "Memoization and avoiding unnecessary re-renders"]
-      },
-      {
-        question: "Describe how RESTful API design principles differ from GraphQL or WebSockets, and in what architectural circumstances you would choose each.",
-        category: "API Architecture",
-        interviewerNote: "Discuss over-fetching/under-fetching, real-time bidirectional messaging, and caching.",
-        expectedKeyPoints: ["REST: HTTP verbs, statelessness, URL resource-based", "GraphQL: Single endpoint, client-driven queries, avoiding over-fetching", "WebSockets: Persistent full-duplex TCP connection for real-time updates", "Trade-offs in caching, complexity, and tooling"]
-      },
-      {
-        question: "How would you design a scalable rate limiter to prevent API abuse on a public service endpoint?",
-        category: "System Design",
-        interviewerNote: "Discuss algorithms like Token Bucket or Leaky Bucket, and where state is stored.",
-        expectedKeyPoints: ["Token bucket / sliding window log algorithm", "Redis for distributed counter and fast in-memory TTL expiration", "HTTP 429 Too Many Requests response with Retry-After header", "IP-based vs user token-based identification"]
-      },
-      {
-        question: "Explain how database indexing works internally (B-trees) and what trade-offs you make when adding indexes to a frequently updated table.",
-        category: "Database Engineering",
-        interviewerNote: "Cover query lookup speed versus write/insert overhead.",
-        expectedKeyPoints: ["B-Tree / B+Tree structure and logarithmic search time", "Faster SELECT WHERE queries", "Write penalty: INSERT, UPDATE, and DELETE require tree rebalancing", "Index memory footprint and index selectivity"]
-      }
-    ],
-    Advanced: [
-      {
-        question: "How would you architect a distributed caching layer (using Redis/Memcached) while mitigating Cache Stampede, Cache Penetration, and Cache Avalanche?",
-        category: "Distributed Systems",
-        interviewerNote: "Explain the difference between these three failure modes and concrete mitigation techniques.",
-        expectedKeyPoints: ["Cache Stampede: Mutex locks, probabilistic early expiration (XFetch)", "Cache Penetration: Bloom filters, caching null values with short TTL", "Cache Avalanche: Randomizing TTL jitter, multi-level fallback caching", "Cache-aside vs write-through patterns"]
-      },
-      {
-        question: "Walk through designing an event-driven architecture using message queues (e.g., Kafka or RabbitMQ) ensuring idempotency and at-least-once delivery guarantees.",
-        category: "Event Architecture",
-        interviewerNote: "Highlight outbox pattern, deduplication keys, and dead-letter queues.",
-        expectedKeyPoints: ["Transactional Outbox pattern", "Idempotency keys and unique constraint deduplication", "Consumer acknowledgements & offset management", "Dead letter queues for failed poison pill messages"]
-      }
-    ]
-  },
-  'Data Analyst': {
-    Beginner: [
-      {
-        question: "What is the difference between INNER JOIN, LEFT JOIN, RIGHT JOIN, and FULL OUTER JOIN in SQL? Provide an example query scenario.",
-        category: "SQL Fundamentals",
-        interviewerNote: "Visualizing two overlapping sets or using Customers and Orders tables is a great way to answer.",
-        expectedKeyPoints: ["INNER JOIN: only matching rows from both tables", "LEFT JOIN: all rows from left plus matching right rows", "RIGHT JOIN / FULL OUTER JOIN definitions", "Handling NULL values in non-matched columns"]
-      },
-      {
-        question: "How do you handle missing or duplicate values when cleaning a raw dataset in Python (Pandas) or Excel before starting your exploratory data analysis?",
-        category: "Data Wrangling",
-        interviewerNote: "Explain your thought process on deciding whether to drop, impute with mean/median, or flag missing values.",
-        expectedKeyPoints: ["Identifying missingness mechanism (MCAR, MAR, MNAR)", "Imputation (mean, median, mode, forward fill) vs dropping rows/columns", "Identifying duplicates (drop_duplicates())", "Documenting data cleaning transformations"]
-      },
-      {
-        question: "Explain the difference between Mean, Median, and Mode. Which measure of central tendency would you use to describe salaries at a tech company, and why?",
-        category: "Statistics & Insights",
-        interviewerNote: "Think about right-skewed distributions and the impact of extreme outliers like executive compensation.",
-        expectedKeyPoints: ["Definitions of Mean, Median, Mode", "Sensitivity of Mean to extreme outliers", "Skewed salary distribution and why Median is the standard representative metric", "Interquartile range and percentiles"]
-      },
-      {
-        question: "What is a Cohort Analysis, and how would you use it to evaluate user retention for a subscription-based mobile application?",
-        category: "Business Analytics",
-        interviewerNote: "Explain how grouping users by signup month or acquisition date reveals behavioral trends over time.",
-        expectedKeyPoints: ["Grouping users by common event timeframe (e.g. signup week/month)", "Tracking metrics (retention rate, churn) across subsequent time periods", "Heatmap / retention curve visualization", "Actionable product insights from retention drop-offs"]
-      }
-    ],
-    Intermediate: [
-      {
-        question: "Explain SQL Window Functions (like ROW_NUMBER, RANK, DENSE_RANK, and LAG/LEAD). When would you choose DENSE_RANK over RANK?",
-        category: "Advanced SQL",
-        interviewerNote: "Provide a scenario like finding the top 3 highest-spending customers per region.",
-        expectedKeyPoints: ["OVER (PARTITION BY ... ORDER BY ...)", "Difference in tie handling: RANK skips numbers, DENSE_RANK does not skip", "LAG/LEAD for month-over-month comparisons without self-joins", "Practical top-N per category query structure"]
-      },
-      {
-        question: "How do you design a high-impact dashboard in Tableau or Power BI that prevents information overload and leads directly to business decisions?",
-        category: "Data Visualization",
-        interviewerNote: "Talk about visual hierarchy, user personas, KPI cards, and progressive drill-downs.",
-        expectedKeyPoints: ["Understanding the stakeholder's primary business question", "Visual hierarchy: summary KPI cards at top, trend charts in middle, drill-down tables at bottom", "Color restraint (use color to highlight action items, not decoration)", "Interactive filters and intuitive tooltip context"]
-      }
-    ],
-    Advanced: [
-      {
-        question: "How would you design and analyze an A/B test for a major e-commerce checkout redesign? Walk through hypothesis formulation, sample size calculation, p-values, and statistical power.",
-        category: "Experimentation & Statistical Inference",
-        interviewerNote: "Address Type I and Type II errors, minimum detectable effect (MDE), and guardrail metrics.",
-        expectedKeyPoints: ["Null and alternative hypotheses definition", "Sample size power analysis (alpha=0.05, beta=0.80, MDE)", "P-value interpretation and confidence intervals", "Guardrail metrics (e.g., page load latency, support ticket volume)"]
-      }
-    ]
-  },
-  'UI/UX Designer': {
-    Beginner: [
-      {
-        question: "What is the difference between UI (User Interface) and UX (User Experience)? Can you walk through your design process from problem discovery to final mockups?",
-        category: "Design Process",
-        interviewerNote: "Feel free to structure your answer around the Double Diamond or Design Thinking framework.",
-        expectedKeyPoints: ["UI: Visual aesthetics, typography, colors, component design", "UX: User journey, information architecture, usability, problem-solving", "Stages: Empathize/Research, Define, Ideate, Prototype, Test", "User feedback and iterative refinement"]
-      },
-      {
-        question: "Explain how you establish visual hierarchy on a mobile screen. What design elements guide a user's attention first?",
-        category: "Visual Design",
-        interviewerNote: "Mention scale, typographic contrast, color prominence, spacing, and reading patterns like F or Z patterns.",
-        expectedKeyPoints: ["Typography scale and weight contrast", "Color accents reserved for primary CTAs", "Whitespace and spatial grouping (Law of Proximity)", "Visual reading patterns (F-pattern, Z-pattern, Gutenberg diagram)"]
-      },
-      {
-        question: "What are WCAG accessibility guidelines, and how do you ensure your color choices, button targets, and typography are accessible to all users?",
-        category: "Accessibility & Inclusivity",
-        interviewerNote: "Refer to minimum contrast ratios (4.5:1), touch target sizes (at least 44x44px), and screen-reader considerations.",
-        expectedKeyPoints: ["WCAG AA compliance standards", "Color contrast ratios (4.5:1 for normal text, 3:1 for large text)", "Touch target dimensions (44x44px minimum for mobile)", "Not relying on color alone for state indication (pairing with icons/text)"]
-      },
-      {
-        question: "How do you conduct a usability test on a new prototype with real users, and how do you handle negative feedback on a design you worked hard on?",
-        category: "User Research & Usability",
-        interviewerNote: "Highlight neutrality as a facilitator, observing user friction without leading them, and seeing feedback as data.",
-        expectedKeyPoints: ["Preparing unbiased task scenarios (e.g. 'Book a ticket' without saying which button to click)", "Encouraging think-aloud protocol", "Separating personal ego from user feedback", "Synthesizing friction points into prioritized design iterations"]
-      }
-    ],
-    Intermediate: [
-      {
-        question: "How do you build and maintain a scalable Design System in Figma? Explain components, variants, design tokens, and developer handoff.",
-        category: "Design Systems",
-        interviewerNote: "Discuss consistency across product teams, naming conventions, and syncing with Tailwind or code tokens.",
-        expectedKeyPoints: ["Atomic design methodology (atoms, molecules, organisms)", "Figma component variants and auto-layout auto-resizing", "Design tokens for colors, spacing, and elevation", "Collaborative developer specs and inspect mode documentation"]
-      },
-      {
-        question: "Describe a time when business goals conflicted with user user experience desires (e.g., aggressive popups vs clean flow), and how you resolved or negotiated the trade-off.",
-        category: "Product Strategy & Negotiation",
-        interviewerNote: "Focus on empathy for both business conversion and user trust.",
-        expectedKeyPoints: ["Understanding the underlying business metric (e.g., email capture or subscription conversion)", "Identifying user pain points (e.g., immediate intrusive modal causing bounce)", "Proposing balanced alternatives (e.g., contextual inline opt-in or delayed exit intent)", "Validating resolution with quantitative A/B testing"]
-      }
-    ],
-    Advanced: [
-      {
-        question: "How do you design for complex enterprise workflows with high data density while minimizing cognitive load and error rates?",
-        category: "Complex Enterprise UX",
-        interviewerNote: "Think about batch operations, keyboard shortcuts, undo states, and progressive disclosure.",
-        expectedKeyPoints: ["Progressive disclosure: surfacing essentials while keeping advanced parameters 1 click away", "Forgiving UI: optimistic UI, clear undo toasts instead of modal blockers", "Keyboard navigation and bulk batch actions", "Information architecture optimized for expert power users"]
-      }
-    ]
-  },
-  'AI/ML Engineer': {
-    Beginner: [
-      {
-        question: "Explain the difference between Supervised Learning, Unsupervised Learning, and Reinforcement Learning, giving one clear real-world example for each.",
-        category: "ML Fundamentals",
-        interviewerNote: "Structure each with input data type, training signal, and target output.",
-        expectedKeyPoints: ["Supervised: labeled data (e.g., house price prediction, email spam classification)", "Unsupervised: unlabeled data finding hidden patterns (e.g., customer segmentation via k-means)", "Reinforcement: agent learning optimal policy via rewards/penalties (e.g., game playing, robotics)", "Loss functions and optimization feedback"]
-      },
-      {
-        question: "What is the Overfitting problem in machine learning? How do you diagnose it using train/validation loss curves, and what techniques prevent it?",
-        category: "Model Generalization",
-        interviewerNote: "Discuss the bias-variance trade-off, regularization, and data augmentation.",
-        expectedKeyPoints: ["Overfitting: high training accuracy but poor validation/test generalization", "Diverging loss curves (training loss drops while validation loss climbs)", "Regularization (L1 Lasso, L2 Ridge, Dropout)", "Data augmentation, cross-validation, and early stopping"]
-      },
-      {
-        question: "Why is Precision and Recall often more informative than Accuracy when evaluating classification models on imbalanced datasets (e.g., rare fraud detection)?",
-        category: "Evaluation Metrics",
-        interviewerNote: "Consider a dataset where 99.9% of transactions are legitimate.",
-        expectedKeyPoints: ["Accuracy paradox: a naive model predicting all negatives achieves 99.9% accuracy but catches zero fraud", "Precision: TP / (TP + FP) — proportion of positive identifications that are correct", "Recall: TP / (TP + FN) — proportion of actual positives detected", "F1-Score and PR-AUC trade-offs"]
-      },
-      {
-        question: "Explain how Gradient Descent works to minimize a loss function. What is the role of the learning rate, and what happens if it is set too high or too low?",
-        category: "Optimization",
-        interviewerNote: "Use the analogy of finding the lowest point in a hilly valley in dense fog.",
-        expectedKeyPoints: ["Iterative optimization moving in direction of steepest descent (negative gradient)", "Learning rate (eta) controlling step size", "Too high: overshooting minimum or diverging", "Too low: extremely slow convergence or getting stuck in local plateaus/saddle points"]
-      }
-    ],
-    Intermediate: [
-      {
-        question: "Explain the Transformer architecture and the Self-Attention mechanism. Why did Transformers replace RNNs and LSTMs for natural language processing?",
-        category: "Deep Learning & NLP",
-        interviewerNote: "Contrast sequential processing with parallel attention across all token pairs.",
-        expectedKeyPoints: ["Query, Key, Value vectors and scaled dot-product attention softmax(QK^T / sqrt(d_k))V", "Parallel computation across sequence tokens compared to sequential O(n) RNN steps", "Mitigating vanishing gradients over long context distances", "Multi-head attention capturing multiple representation subspaces"]
-      },
-      {
-        question: "What is Retrieval-Augmented Generation (RAG)? Walk through the pipeline from chunking documents, embedding generation, vector database search, to LLM synthesis.",
-        category: "Generative AI Systems",
-        interviewerNote: "Explain how RAG grounds language models and prevents hallucinations without fine-tuning weights.",
-        expectedKeyPoints: ["Document ingestion, parsing, and semantic text chunking with overlap", "Vector embedding generation (e.g., text-embedding-004)", "Similarity search in vector DB (cosine similarity, HNSW index)", "Injecting retrieved context into prompt with system instructions to synthesize factual answers"]
-      }
-    ],
-    Advanced: [
-      {
-        question: "How do you evaluate and monitor Large Language Models in production against hallucination, prompt injection, and latency degradation? What is your LLM-as-a-Judge strategy?",
-        category: "LLM Operations & Safety",
-        interviewerNote: "Address semantic drift, guardrails, automated evaluation benchmarks, and cost-latency trade-offs.",
-        expectedKeyPoints: ["Grounding and faithfulness evaluation metrics (RAGAS framework)", "Input sanitization and guardrail filters against adversarial jailbreaks", "LLM-as-a-judge rubrics with pairwise ranking and reference comparisons", "P95/P99 latency tracking, token caching, and fallback cascading"]
-      }
-    ]
-  },
-  'Prompt Engineer': {
-    Beginner: [
-      {
-        question: "What is Prompt Engineering? Explain the core components of an effective prompt (Role, Task, Context, Constraints, and Output Format).",
-        category: "Prompt Fundamentals",
-        interviewerNote: "Provide an example illustrating a vague prompt transformed into a high-performance structured prompt.",
-        expectedKeyPoints: ["Role/Persona definition ('Act as an experienced tech interviewer')", "Clear task instruction without ambiguity", "Background context and target audience", "Explicit constraints (length, tone, things to avoid)", "Structured output format (JSON schema, markdown table, bullet points)"]
-      },
-      {
-        question: "What is Few-Shot Prompting, and how does providing 2-3 input-output examples improve model accuracy compared to Zero-Shot instructions?",
-        category: "In-Context Learning",
-        interviewerNote: "Discuss how examples anchor the model's tone, format expectations, and edge-case handling.",
-        expectedKeyPoints: ["Zero-shot: asking without demonstrations vs Few-shot: including demonstration pairs", "In-context learning without updating model parameters", "Demonstrating subtle formatting, edge-case behavior, and reasoning patterns", "Preventing output drift and parsing errors in automated pipelines"]
-      },
-      {
-        question: "Explain Chain-of-Thought (CoT) prompting. When is it necessary, and why does telling the model to 'think step by step' reduce reasoning errors?",
-        category: "Reasoning Techniques",
-        interviewerNote: "Explain how intermediate reasoning tokens allow the model to compute intermediate states before jumping to the final answer.",
-        expectedKeyPoints: ["Encouraging explicit intermediate reasoning steps before arriving at a final answer", "Autoregressive generation benefit: model attends to its own prior reasoning tokens", "Significantly improves performance on multi-step math, logic, and coding problems", "Least-to-most prompting and self-consistency voting variations"]
-      },
-      {
-        question: "What is AI hallucination, why does it happen in generative language models, and what prompt techniques help suppress it?",
-        category: "Reliability & Safety",
-        interviewerNote: "Talk about grounding, temperature parameter tuning, and providing explicit fallback instructions.",
-        expectedKeyPoints: ["Probabilistic next-token prediction without internal truth verification", "Prompting with explicit grounding in verified source text", "Instructing model: 'If the information is not in the text, state that you do not know'", "Lowering temperature parameter (e.g. 0.0 to 0.2) for deterministic factual tasks"]
-      }
-    ],
-    Intermediate: [
-      {
-        question: "How do you protect production LLM applications against Direct and Indirect Prompt Injection attacks (e.g., malicious user input attempting to override system instructions)?",
-        category: "Security & Guardrails",
-        interviewerNote: "Distinguish between direct user jailbreaks and indirect payloads hidden inside parsed web pages or emails.",
-        expectedKeyPoints: ["Direct injection: user jailbreaks trying to ignore system rules", "Indirect injection: untrusted 3rd party content containing hidden commands", "Clear delimiters (e.g. XML tags <user_input>) separating instructions from untrusted data", "Secondary validation LLM or deterministic regex/classifier guardrail filters"]
-      },
-      {
-        question: "How do you design a systematic prompt evaluation framework (evals) to measure whether a prompt update actually improved performance across 100 test cases?",
-        category: "Prompt Evaluation & Testing",
-        interviewerNote: "Cover gold datasets, automated assertion checks, and regression prevention.",
-        expectedKeyPoints: ["Curating a representative test dataset including edge cases and adversarial inputs", "Automated deterministic assertions (JSON validity, regex, keyword presence)", "Model-based evaluation (LLM-as-a-judge scoring with strict rubrics)", "Tracking pass rates and preventing regressions before deploying to production"]
-      }
-    ],
-    Advanced: [
-      {
-        question: "How do you design an autonomous multi-step agent prompt using the ReAct (Reason + Act) framework with function calling and error recovery loops?",
-        category: "Agent Architecture",
-        interviewerNote: "Detail the loop of Thought -> Action -> Observation -> Final Answer, and handling tool timeouts.",
-        expectedKeyPoints: ["ReAct loop: Thought (reasoning), Action (tool selection), Observation (tool execution output)", "Function/Tool declarations with typed schemas", "Handling tool failure, malformed JSON, and infinite loop limits with max-iteration guards", "Memory management across multi-turn tool interaction histories"]
-      }
-    ]
-  }
-};
-
-// Helper: Pick fallback question
-function getFallbackQuestion(role: string, difficulty: string, questionIndex: number) {
-  const roleGroup = FALLBACK_QUESTIONS[role] || FALLBACK_QUESTIONS['Software Developer'];
-  const difficultyGroup = roleGroup[difficulty] || roleGroup['Beginner'];
-  const idx = (questionIndex - 1) % difficultyGroup.length;
-  const q = difficultyGroup[idx] || difficultyGroup[0];
-  return {
-    id: `q-${questionIndex}`,
-    question: q.question,
-    category: q.category,
-    interviewerNote: q.interviewerNote,
-    expectedKeyPoints: q.expectedKeyPoints,
-    hints: [
-      `Structure your response clearly and share a real project or theoretical example.`,
-      `Focus on key terminology related to ${role}.`
-    ]
-  };
-}
-
-// Endpoint: Health check
-app.get('/api/health', (req, res) => {
+// Health check
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     hasGeminiKey: Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY'),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
-// Endpoint: Generate Interview Question
-app.post('/api/interview/generate-question', async (req, res) => {
-  const {
-    role = 'Software Developer',
-    difficulty = 'Beginner',
-    candidateName = 'Candidate',
-    questionIndex = 1,
-    totalQuestions = 5,
-    focusArea = '',
-    previousQAs = []
-  } = req.body;
-
-  // If Gemini is not configured, gracefully return high quality fallback
-  if (!ai) {
-    const fallback = getFallbackQuestion(role, difficulty, questionIndex);
-    return res.json({
-      success: true,
-      data: fallback,
-      source: 'offline-curated'
-    });
-  }
+// Endpoint: Parse Resume PDF or Text
+app.post('/api/resume/parse', async (req, res) => {
+  const { fileBase64, fileName = 'resume.pdf', rawText = '' } = req.body;
 
   try {
-    const previousContext = Array.isArray(previousQAs) && previousQAs.length > 0
-      ? `Previous questions and candidate answers in this session:
-${previousQAs.map((item: any, i: number) => `Q${i+1}: ${item.question}\nAnswer summary: ${item.answer?.slice(0, 150)}...\nScore received: ${item.score}/10`).join('\n\n')}`
-      : 'This is the first question in the session.';
+    let extractedText = rawText;
 
-    const prompt = `You are a world-class senior technical interviewer and hiring manager conducting a mock interview for freshers and college graduates.
-Candidate Name: ${candidateName}
-Target Job Role: ${role}
-Interview Difficulty Level: ${difficulty}
-Question Progress: Question ${questionIndex} of ${totalQuestions}
-Optional Focus Area: ${focusArea ? focusArea : 'Standard core curriculum'}
+    if (fileBase64) {
+      const buffer = Buffer.from(fileBase64, 'base64');
+      const parser = new PDFParse({ data: new Uint8Array(buffer) });
+      const textResult = await parser.getText();
+      extractedText = textResult.text || '';
+      await parser.destroy();
+    }
 
-${previousContext}
+    if (!extractedText.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not extract text from the provided resume. Please ensure the PDF has readable text or paste your resume content.',
+      });
+    }
 
-Generate the NEXT relevant interview question for ${candidateName}.
-Requirements:
-1. The question must strictly align with the role of "${role}" at "${difficulty}" level suitable for freshers.
-2. If this is question 1, start with a foundational, confidence-building question.
-3. If previous questions exist, adapt appropriately: dive deeper if the candidate performed well, or provide a foundational pivot if they struggled.
-4. Keep the question crisp, practical, and conversational as spoken by an empathetic professional interviewer.
-5. Provide 2 concise hints the candidate can reveal if they get stuck.
-6. Provide 3-4 key points a strong answer should touch upon.
-7. Provide a warm, encouraging 1-sentence interviewerNote.
+    // Default basic parsed structure
+    const fallbackParsed = {
+      fileName,
+      rawText: extractedText.slice(0, 3000),
+      skills: ['Problem Solving', 'Data Structures', 'Communication', 'Version Control (Git)'],
+      projects: [
+        {
+          title: 'Academic / Portfolio Project',
+          tech: 'Full Stack / Python',
+          description: 'Key technical implementation outlined in resume.',
+        },
+      ],
+      education: 'Undergraduate Degree',
+      certifications: [],
+      internships: [],
+      technologies: ['Git', 'VS Code', 'Command Line'],
+    };
 
-Return your response in pure JSON format with this exact structure:
+    if (!ai) {
+      return res.json({
+        success: true,
+        data: fallbackParsed,
+        source: 'local-parser',
+      });
+    }
+
+    const prompt = `You are an expert technical recruiter analyzing a college student or fresher's resume.
+Extract the key facts accurately from the following resume text.
+CRITICAL CONSTRAINT: Do NOT hallucinate or invent information that is not present in the text.
+
+Resume Text:
+"""
+${extractedText.slice(0, 6000)}
+"""
+
+Return a pure JSON object with this exact structure:
 {
-  "id": "q-${questionIndex}",
-  "question": "string",
-  "category": "string (e.g. Core Concepts, Architecture, Scenario, Problem Solving, Best Practices)",
-  "interviewerNote": "string",
-  "hints": ["string", "string"],
-  "expectedKeyPoints": ["string", "string", "string"]
+  "candidateName": "Extracted full name or 'Candidate'",
+  "skills": ["Array of skills mentioned"],
+  "projects": [
+    {
+      "title": "Project Name",
+      "tech": "Technologies used (if mentioned)",
+      "description": "Brief 1-sentence summary of what they built"
+    }
+  ],
+  "education": "Degree, major, institution, or graduation year mentioned",
+  "certifications": ["Certifications mentioned (if any)"],
+  "internships": ["Internship or work experience titles/companies (if any)"],
+  "technologies": ["Specific programming languages, frameworks, or databases mentioned"]
 }`;
 
     const response = await ai.models.generateContent({
@@ -402,42 +124,195 @@ Return your response in pure JSON format with this exact structure:
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        temperature: 0.7,
-      }
+        temperature: 0.2,
+      },
+    });
+
+    const text = response.text?.trim() || '';
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(text);
+    } catch {
+      const cleaned = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+      parsedJson = JSON.parse(cleaned);
+    }
+
+    parsedJson.fileName = fileName;
+    parsedJson.rawText = extractedText.slice(0, 3000);
+
+    return res.json({
+      success: true,
+      data: parsedJson,
+      source: 'gemini-3.8-flash',
+    });
+  } catch (error: any) {
+    console.error('Resume parsing error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to process resume.',
+    });
+  }
+});
+
+// Endpoint: Generate Interview Question (Structured Bank + Gemini Resume/Adaptive Grounding)
+app.post('/api/interview/generate-question', async (req, res) => {
+  const {
+    role = 'Software Developer',
+    difficulty = 'Beginner',
+    candidateName = 'Candidate',
+    questionIndex = 1,
+    totalQuestions = 10,
+    selectedQuestionCount,
+    mode = 'mixed',
+    focusArea = '',
+    previousQAs = [],
+    resumeData = null,
+  } = req.body;
+
+  const selectedTotal = Number(selectedQuestionCount) || Number(totalQuestions) || 10;
+  const isResumeMode = mode === 'resume' && resumeData;
+
+  // Extract all previously asked questions to strictly prevent duplicate questions
+  const askedQuestions: string[] = (previousQAs || []).map((item: any) => item.question).filter(Boolean);
+
+  // Retrieve an unasked question from the structured bank
+  const fallbackBankQ = getNextUnusedBankQuestion(mode, role, difficulty, askedQuestions);
+
+  if (!ai) {
+    return res.json({
+      success: true,
+      data: {
+        id: `q-${questionIndex}`,
+        question: fallbackBankQ.question,
+        category: fallbackBankQ.category,
+        interviewerNote: fallbackBankQ.interviewerNote,
+        hints: fallbackBankQ.hints,
+        expectedKeyPoints: fallbackBankQ.expectedKeyPoints,
+      },
+      source: 'structured-question-bank',
+    });
+  }
+
+  try {
+    let modeGuidance = '';
+    if (isResumeMode) {
+      modeGuidance = `RESUME GROUNDING (CRITICAL):
+The candidate uploaded their resume. Base the question directly on their real projects, technologies, or internships listed below:
+Skills: ${resumeData.skills?.join(', ') || 'N/A'}
+Projects: ${JSON.stringify(resumeData.projects || [])}
+Technologies: ${resumeData.technologies?.join(', ') || 'N/A'}
+Internships: ${resumeData.internships?.join(', ') || 'None listed'}
+
+Formulate a realistic interview question referencing their exact project or skill.
+Example format: "In your resume, you mentioned developing [Project Name] using [Tech]. Can you explain [specific technical decision or challenge]?"
+DO NOT invent projects or skills not present in the resume summary!`;
+    } else if (mode === 'hr') {
+      modeGuidance = 'Focus exclusively on HR and Behavioral questions (background, motivation, teamwork, strengths, college challenges).';
+    } else if (mode === 'technical') {
+      modeGuidance = `Focus on core Technical, Coding, SQL, Python, or ${role} foundational concepts commonly tested in fresher placement rounds.`;
+    } else if (mode === 'project') {
+      modeGuidance = 'Focus on deep-dive project questions: architecture, design choices, debugging hurdles, database decisions, and user impact.';
+    } else {
+      modeGuidance = 'Mixed interview: combine technical fundamentals, practical scenario reasoning, and behavioral communication.';
+    }
+
+    const previousContext = previousQAs.length > 0
+      ? `Previous questions asked and candidate answers in this session:
+${previousQAs.map((item: any, i: number) => `Q${i + 1}: ${item.question}\nAnswer: ${item.answer?.slice(0, 160)}...\nScore: ${item.score}/10`).join('\n\n')}`
+      : 'This is the first question in the session.';
+
+    const prompt = `You are a professional, encouraging technical interviewer conducting a mock interview for a college fresher.
+Candidate Name: ${candidateName}
+Target Role: ${role}
+Difficulty Level: ${difficulty}
+Interview Mode: ${mode}
+Question Progress: Question ${questionIndex} of ${selectedTotal}
+Optional Focus Area: ${focusArea || 'Standard fresher placement syllabus'}
+
+${modeGuidance}
+
+${previousContext}
+
+CRITICAL CONSTRAINTS:
+1. Do NOT repeat or rephrase any question that was already asked in the previous questions above!
+2. Must be a brand-new, distinct question suited for Question ${questionIndex} of ${selectedTotal}.
+3. Keep the question crisp, realistic, and conversational as asked in a campus placement interview.
+
+Inspiration Reference from Question Bank:
+"${fallbackBankQ.question}" (Category: ${fallbackBankQ.category})
+
+Requirements:
+1. Formulate a realistic, clear, conversational interview question suited for a college fresher / entry-level candidate.
+2. If this is question 1, start with a welcoming, foundational question.
+3. If the candidate previously answered well, adapt appropriately by diving into a practical nuance or trade-off.
+4. Include 2 helpful hints to guide the candidate if stuck.
+5. Include 3-4 key points a strong candidate answer should touch upon.
+6. Include a warm 1-sentence interviewerNote.
+
+Return your response in pure JSON format:
+{
+  "id": "q-${questionIndex}",
+  "question": "The interview question",
+  "category": "${fallbackBankQ.category}",
+  "interviewerNote": "Warm, encouraging 1-sentence note",
+  "hints": ["Hint 1", "Hint 2"],
+  "expectedKeyPoints": ["Key point 1", "Key point 2", "Key point 3"]
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.6,
+      },
     });
 
     const text = response.text?.trim() || '';
     let parsedData;
     try {
       parsedData = JSON.parse(text);
-    } catch (e) {
-      // Remove possible markdown formatting
+    } catch {
       const cleaned = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
       parsedData = JSON.parse(cleaned);
     }
 
     if (!parsedData || !parsedData.question) {
-      throw new Error('Invalid JSON structure from model');
+      throw new Error('Malformed question output');
+    }
+
+    // Ensure Gemini did not accidentally duplicate any previously asked questions in this session
+    if (askedQuestions.some((asked) => asked.toLowerCase().trim() === parsedData.question.toLowerCase().trim())) {
+      parsedData.question = fallbackBankQ.question;
+      parsedData.category = fallbackBankQ.category;
+      parsedData.interviewerNote = fallbackBankQ.interviewerNote;
+      parsedData.hints = fallbackBankQ.hints;
+      parsedData.expectedKeyPoints = fallbackBankQ.expectedKeyPoints;
     }
 
     return res.json({
       success: true,
       data: parsedData,
-      source: 'gemini-3.8-flash'
+      source: isResumeMode ? 'resume-grounded-gemini' : 'gemini-3.8-flash',
     });
   } catch (error: any) {
-    console.warn('Gemini question generation error, falling back to curated bank:', error.message || error);
-    const fallback = getFallbackQuestion(role, difficulty, questionIndex);
+    console.warn('Gemini question generation error, falling back to structured bank:', error.message || error);
     return res.json({
       success: true,
-      data: fallback,
-      source: 'fallback-on-error',
-      message: 'Generated using curated industry standards'
+      data: {
+        id: `q-${questionIndex}`,
+        question: fallbackBankQ.question,
+        category: fallbackBankQ.category,
+        interviewerNote: fallbackBankQ.interviewerNote,
+        hints: fallbackBankQ.hints,
+        expectedKeyPoints: fallbackBankQ.expectedKeyPoints,
+      },
+      source: 'structured-question-bank',
     });
   }
 });
 
-// Endpoint: Evaluate Answer
+// Endpoint: Evaluate Answer & Generate Dynamic Follow-Up Question
 app.post('/api/interview/evaluate-answer', async (req, res) => {
   const {
     role = 'Software Developer',
@@ -446,41 +321,49 @@ app.post('/api/interview/evaluate-answer', async (req, res) => {
     question = '',
     answer = '',
     questionNumber = 1,
-    expectedKeyPoints = []
+    expectedKeyPoints = [],
+    category = 'Technical',
   } = req.body;
 
   if (!answer || answer.trim().length === 0) {
     return res.status(400).json({
       success: false,
-      error: 'Please provide an answer before submitting for evaluation.'
+      error: 'Please provide an answer before submitting for evaluation.',
     });
   }
 
-  // Fallback evaluation generator if offline or error
+  // Fallback rubric if offline
   const generateFallbackEvaluation = () => {
     const wordCount = answer.trim().split(/\s+/).length;
-    let score = 6.0;
-    if (wordCount < 15) score = 3.5;
-    else if (wordCount < 35) score = 5.5;
-    else if (wordCount < 80) score = 7.5;
-    else score = 8.5;
+    let score = 7.0;
+    if (wordCount < 15) score = 4.0;
+    else if (wordCount < 35) score = 6.0;
+    else if (wordCount > 60) score = 8.0;
 
     return {
       score,
+      technicalScore: Math.min(10, Math.round(score + 0.2)),
+      communicationScore: Math.min(10, Math.round(score - 0.2)),
+      problemSolvingScore: Math.min(10, Math.round(score)),
+      confidenceScore: Math.min(10, Math.round(score + 0.4)),
       strengths: [
-        "Addressed the core topic directly with a positive, proactive attempt.",
-        wordCount > 30 ? "Included adequate descriptive context in your explanation." : "Showed basic awareness of the essential concept."
+        'Addressed the core subject directly with relevant terminology.',
+        wordCount > 30 ? 'Provided adequate descriptive context in your explanation.' : 'Identified the main concept accurately.',
       ],
       weaknesses: [
-        wordCount < 40 ? "Answer is quite brief; interviewers expect deeper technical context or concrete examples." : "Could further structure thoughts using the STAR method (Situation, Task, Action, Result).",
-        "Could explicitly name standard industry tools, libraries, or architectural trade-offs."
+        wordCount < 40 ? 'Response is relatively brief; interviewers expect concrete examples or code patterns.' : 'Could structure the response more strictly using the STAR methodology.',
+        'Consider explaining the trade-offs or alternative approaches.',
       ],
       suggestions: [
-        "Elaborate on real-world examples from college projects, coursework, or internships.",
-        "Quantify your results or explain edge-cases to stand out from average applicants."
+        'Back up your definition with a concrete project or coursework implementation.',
+        'Mention specific metrics, algorithms, or performance considerations.',
       ],
-      sampleAnswer: `When approaching this in a ${role} position, I prioritize both conceptual clarity and practical reliability. For example, during a recent project, I had to address this exact challenge by analyzing the requirements, designing a clean solution, and testing edge cases. Specifically, I ensured clear separation of concerns, applied industry best practices, and verified performance under load. This resulted in a maintainable, high-quality implementation.`,
-      feedbackSummary: `Solid attempt, ${candidateName}! With a bit more technical structure and real project examples, your answer will be interview-ready.`
+      sampleAnswer: `In an interview context for ${role}, I would articulate this by first providing a precise definition, followed by a concrete project scenario. For example, during a recent project, I implemented this concept to ensure modularity and reliability, which directly prevented edge-case errors under scale.`,
+      feedbackSummary: `Good attempt, ${candidateName}! With a bit more structured context and real project mentions, this will be high-scoring in your campus rounds.`,
+      followUpQuestion: {
+        question: `You mentioned your approach to ${category}; could you walk me through the most challenging edge case you would prepare for in that scenario?`,
+        reason: 'Analyzing edge cases demonstrates hands-on practical depth beyond rote memorization.',
+      },
     };
   };
 
@@ -488,41 +371,51 @@ app.post('/api/interview/evaluate-answer', async (req, res) => {
     return res.json({
       success: true,
       data: generateFallbackEvaluation(),
-      source: 'offline-rubric'
+      source: 'offline-rubric',
     });
   }
 
   try {
-    const prompt = `You are a supportive, insightful senior technical interviewer evaluating a fresher's mock interview answer.
+    const prompt = `You are a senior hiring manager and tech interviewer conducting a mock interview with a college fresher.
 Candidate Name: ${candidateName}
-Target Job Role: ${role}
-Difficulty Level: ${difficulty}
-Question Number: ${questionNumber}
+Target Role: ${role}
+Difficulty: ${difficulty}
 Question Asked: "${question}"
+Category: "${category}"
 Candidate's Answer: "${answer}"
-Expected Key Points (if available): ${JSON.stringify(expectedKeyPoints)}
+Expected Key Points: ${JSON.stringify(expectedKeyPoints)}
 
-Evaluate this candidate's response thoroughly with empathy for freshers/college graduates while maintaining industry standards.
-Requirements:
-1. "score": A decimal number between 0.0 and 10.0 (e.g. 7.5).
-   - 0.0-3.5: Empty, irrelevant, or severely incorrect.
-   - 4.0-6.0: High-level or brief, misses key technical depth.
-   - 6.5-8.0: Good, solid foundational understanding with clear explanation.
-   - 8.5-10.0: Outstanding, structured (e.g., STAR format), accurate, includes examples and trade-offs.
-2. "strengths": Array of 2 to 3 specific positive highlights from the candidate's answer.
-3. "weaknesses": Array of 1 to 2 constructive gaps or missed nuances.
-4. "suggestions": Array of 2 to 3 actionable, high-impact improvements (e.g., how to explain it better in a real interview, what keywords to use).
-5. "sampleAnswer": A high-scoring, realistic sample answer (2-3 concise paragraphs) that a top college fresher could deliver verbally in an actual interview.
-6. "feedbackSummary": A warm 1-2 sentence overall reaction directly addressing ${candidateName}.
+Evaluate the candidate's answer across the following 6 criteria:
+1. Technical correctness (Accuracy of facts, syntax, definitions)
+2. Relevance (Directly addressing what was asked without wandering)
+3. Clarity (Logical flow, clear definitions)
+4. Communication (Professional tone, sentence structure)
+5. Confidence (Decisive, clear stance without self-doubt filler)
+6. Completeness (Covering the "why" and "how", not just the "what")
 
-Return your response in pure JSON format with this exact structure:
+CRITICAL REQUIREMENT - DYNAMIC FOLLOW-UP QUESTION:
+Analyze what the candidate specifically stated in their answer and formulate a natural, realistic follow-up question.
+Do NOT ask a disconnected generic question. Drill down into a specific claim, tool, project, or concept they mentioned!
+Example:
+If they mentioned "I created a Power BI sales dashboard", follow up with "What was the most challenging part of creating that dashboard?" or "Why did you choose that particular visualization?"
+
+Return pure JSON:
 {
-  "score": 8.0,
-  "strengths": ["string", "string"],
-  "weaknesses": ["string"],
-  "suggestions": ["string", "string"],
-  "sampleAnswer": "string",
-  "feedbackSummary": "string"
+  "score": number (0.0 to 10.0),
+  "technicalScore": number (0.0 to 10.0),
+  "communicationScore": number (0.0 to 10.0),
+  "problemSolvingScore": number (0.0 to 10.0),
+  "confidenceScore": number (0.0 to 10.0),
+  "strengths": ["2-3 specific strengths"],
+  "weaknesses": ["1-2 specific areas to strengthen"],
+  "suggestions": ["2 actionable tips for real placement interviews"],
+  "sampleAnswer": "A concise, high-scoring answer (2-3 paragraphs) a top fresher could say verbally",
+  "feedbackSummary": "Warm 1-2 sentence reaction to ${candidateName}",
+  "followUpQuestion": {
+    "question": "A direct follow-up question digging deeper into what the candidate specifically stated",
+    "reason": "Brief 1-sentence explanation of why the interviewer is asking this follow-up",
+    "category": "${category}"
+  }
 }`;
 
     const response = await ai.models.generateContent({
@@ -531,125 +424,164 @@ Return your response in pure JSON format with this exact structure:
       config: {
         responseMimeType: 'application/json',
         temperature: 0.4,
-      }
+      },
     });
 
     const text = response.text?.trim() || '';
     let parsedData;
     try {
       parsedData = JSON.parse(text);
-    } catch (e) {
+    } catch {
       const cleaned = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
       parsedData = JSON.parse(cleaned);
     }
 
     if (typeof parsedData.score !== 'number') {
-      parsedData.score = 7.0;
+      parsedData.score = 7.5;
     }
 
     return res.json({
       success: true,
       data: parsedData,
-      source: 'gemini-3.8-flash'
+      source: 'gemini-3.8-flash',
     });
   } catch (error: any) {
-    console.warn('Gemini evaluation error, falling back to rubric:', error.message || error);
+    console.warn('Gemini evaluation error, using rubric:', error.message || error);
     return res.json({
       success: true,
       data: generateFallbackEvaluation(),
-      source: 'fallback-on-error'
+      source: 'fallback-on-error',
     });
   }
 });
 
-// Endpoint: Generate Final Results and Readiness Report
+// Endpoint: Generate Final Comprehensive Interview Report
 app.post('/api/interview/final-summary', async (req, res) => {
   const {
     role = 'Software Developer',
     difficulty = 'Beginner',
     candidateName = 'Candidate',
-    history = []
+    mode = 'mixed',
+    history = [],
   } = req.body;
 
   const totalQuestions = history.length;
-  const avgScore = totalQuestions > 0
+  const avgOverall = totalQuestions > 0
     ? Number((history.reduce((sum: number, item: any) => sum + (Number(item.score) || 0), 0) / totalQuestions).toFixed(1))
     : 7.0;
 
-  // Calculate readiness percentage based on average score with scaling
-  // E.g., score 8.0 -> ~82% readiness
-  const baseReadiness = Math.min(98, Math.max(35, Math.round((avgScore / 10) * 100)));
+  const avgTech = totalQuestions > 0
+    ? Number((history.reduce((sum: number, item: any) => sum + (Number(item.technicalScore || item.score) || 0), 0) / totalQuestions).toFixed(1))
+    : avgOverall;
 
-  const generateFallbackSummary = () => {
-    let performanceLevel = "Placement Ready";
-    if (avgScore < 5.0) performanceLevel = "Needs Guided Practice";
-    else if (avgScore < 7.0) performanceLevel = "Promising Foundation";
-    else if (avgScore >= 8.5) performanceLevel = "Exceptional Candidate";
+  const avgComm = totalQuestions > 0
+    ? Number((history.reduce((sum: number, item: any) => sum + (Number(item.communicationScore || item.score) || 0), 0) / totalQuestions).toFixed(1))
+    : avgOverall;
 
-    return {
-      overallScore: avgScore,
-      questionsAnswered: totalQuestions,
-      readinessPercentage: baseReadiness,
-      performanceLevel,
-      strongAreas: [
-        "Core conceptual understanding of fundamental principles",
-        "Willingness to articulate solutions and tackle technical questions",
-        "Professional and structured communication style"
-      ],
-      areasToImprove: [
-        "Deepen familiarity with specific edge-cases and performance trade-offs",
-        "Practice delivering structured answers using the STAR framework under time constraints",
-        "Back up theoretical knowledge with hands-on portfolio project mentions"
-      ],
-      executiveSummary: `${candidateName} demonstrated a solid grasp of foundational concepts for an entry-level ${role}. With focused revision on real-world scenario trade-offs, you will be in the top quartile of campus placement applicants.`,
-      nextSteps: [
-        "Review the sample answers provided for any questions where you scored below 7.5.",
-        `Build or refine one hands-on project highlighting ${role} best practices.`,
-        "Practice mock verbal delivery with a 2-minute timer for each conceptual question."
-      ]
-    };
-  };
+  const avgProb = totalQuestions > 0
+    ? Number((history.reduce((sum: number, item: any) => sum + (Number(item.problemSolvingScore || item.score) || 0), 0) / totalQuestions).toFixed(1))
+    : avgOverall;
+
+  const avgConf = totalQuestions > 0
+    ? Number((history.reduce((sum: number, item: any) => sum + (Number(item.confidenceScore || item.score) || 0), 0) / totalQuestions).toFixed(1))
+    : avgOverall;
+
+  const readinessPercent = Math.min(98, Math.max(35, Math.round((avgOverall / 10) * 100)));
+
+  const generateFallbackSummary = () => ({
+    overallScore: avgOverall,
+    technicalScore: avgTech,
+    communicationScore: avgComm,
+    problemSolvingScore: avgProb,
+    confidenceScore: avgConf,
+    questionsAnswered: totalQuestions,
+    readinessPercentage: readinessPercent,
+    performanceLevel: avgOverall >= 8.0 ? 'Placement Ready' : avgOverall >= 6.5 ? 'Strong Potential' : 'Needs Practice',
+    strongAreas: [
+      'Grasp of core principles and technical terminology',
+      'Professional articulation and willingness to tackle questions',
+      'Ability to engage with follow-up technical prompts',
+    ],
+    weakAreas: [
+      'Could incorporate more quantifiable project impact metrics',
+      'Reviewing edge cases under system constraints',
+    ],
+    recommendedTopics: [
+      `${role} Core Architecture & Design Patterns`,
+      'Data Structures & Time Complexity Trade-offs',
+      'STAR Method Delivery for Behavioral Rounds',
+    ],
+    personalizedSuggestions: [
+      'Practice answering with a timer: 60-90 seconds per conceptual definition.',
+      'Always state the practical use case before explaining the internal syntax.',
+      'Review the provided model answers for any question where you scored below 7.5.',
+    ],
+    executiveSummary: `${candidateName} completed the mock interview for ${role} with an overall score of ${avgOverall}/10. You demonstrated a promising foundation in technical concepts. Focusing on structured delivery will place you in the top tier of campus candidates.`,
+    nextSteps: [
+      'Re-attempt the questions where you scored lowest and incorporate the sample answer structure.',
+      'Refine one flagship project on your resume so you can talk about it for 5 continuous minutes.',
+    ],
+  });
 
   if (!ai || totalQuestions === 0) {
     return res.json({
       success: true,
       data: generateFallbackSummary(),
-      source: 'computed-rubric'
+      source: 'computed-rubric',
     });
   }
 
   try {
-    const sessionRecap = history.map((item: any, idx: number) => {
-      return `Question ${idx + 1}: ${item.question}
-Candidate Answer: ${item.answer}
+    const sessionHistory = history.map((item: any, idx: number) => {
+      return `Q${idx + 1}: ${item.question}
+Answer: ${item.answer}
 Score: ${item.score}/10
-Strengths identified: ${item.strengths?.join('; ')}
-Weaknesses identified: ${item.weaknesses?.join('; ')}`;
+Strengths: ${item.strengths?.join('; ')}
+Weaknesses: ${item.weaknesses?.join('; ')}`;
     }).join('\n\n---\n\n');
 
-    const prompt = `You are a Chief Technology Officer and Head of Campus Recruiting conducting a final performance evaluation for a fresher who just completed a mock interview session.
+    const prompt = `You are a Chief Technology Officer and Head of Campus Recruiting reviewing a fresher candidate's full mock interview transcript.
 Candidate Name: ${candidateName}
-Target Job Role: ${role}
-Difficulty Level: ${difficulty}
-Total Questions Answered: ${totalQuestions}
-Average Score across answers: ${avgScore}/10
+Target Role: ${role}
+Difficulty: ${difficulty}
+Interview Mode: ${mode}
+Total Questions: ${totalQuestions}
+Average Score: ${avgOverall}/10
 
-Detailed Session History:
-${sessionRecap}
+Session Transcript:
+${sessionHistory}
 
-Analyze this candidate's overall performance. Freshers need encouraging, highly specific, and actionable guidance to land their dream job.
-Calculate an Interview Readiness Percentage (0-100%) that realistically reflects their current readiness for actual campus placements or junior job interviews.
+Synthesize a comprehensive final report tailored for a college fresher.
+Include:
+- Overall Score (${avgOverall}/10)
+- Technical Score (0-10)
+- Communication Score (0-10)
+- Problem Solving Score (0-10)
+- Confidence Score (0-10)
+- Interview Readiness Percentage (integer 35-98)
+- Strong Areas (array of 3-4 specific strengths demonstrated)
+- Weak Areas (array of 2-3 specific areas that need sharpening)
+- Recommended Topics to Study (array of 3 specific technical topics relevant to ${role})
+- Personalized Improvement Suggestions (array of 3 high-impact actionable pieces of advice)
+- Executive Summary (2-3 sentences of inspiring, constructive feedback)
+- Next Steps (array of 2 concrete actions to take before on-campus interviews)
 
-Provide a JSON response with:
+Return pure JSON with this exact structure:
 {
-  "overallScore": ${avgScore},
+  "overallScore": ${avgOverall},
+  "technicalScore": ${avgTech},
+  "communicationScore": ${avgComm},
+  "problemSolvingScore": ${avgProb},
+  "confidenceScore": ${avgConf},
   "questionsAnswered": ${totalQuestions},
-  "readinessPercentage": number (integer between 30 and 99),
-  "performanceLevel": "Placement Ready" | "Exceptional Candidate" | "Promising Foundation" | "Needs Guided Practice",
+  "readinessPercentage": ${readinessPercent},
+  "performanceLevel": "Placement Ready" | "Exceptional Candidate" | "Strong Potential" | "Needs Practice",
   "strongAreas": ["string", "string", "string"],
-  "areasToImprove": ["string", "string", "string"],
-  "executiveSummary": "2-3 sentences of inspiring, high-impact feedback summarizing their potential",
-  "nextSteps": ["3 concrete, actionable steps to prepare before their next real interview"]
+  "weakAreas": ["string", "string"],
+  "recommendedTopics": ["string", "string", "string"],
+  "personalizedSuggestions": ["string", "string", "string"],
+  "executiveSummary": "string",
+  "nextSteps": ["string", "string"]
 }`;
 
     const response = await ai.models.generateContent({
@@ -657,36 +589,36 @@ Provide a JSON response with:
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        temperature: 0.5,
-      }
+        temperature: 0.4,
+      },
     });
 
     const text = response.text?.trim() || '';
     let parsedData;
     try {
       parsedData = JSON.parse(text);
-    } catch (e) {
+    } catch {
       const cleaned = text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
       parsedData = JSON.parse(cleaned);
     }
 
-    if (!parsedData.readinessPercentage) {
-      parsedData.readinessPercentage = baseReadiness;
-    }
-    parsedData.overallScore = avgScore;
+    parsedData.overallScore = avgOverall;
     parsedData.questionsAnswered = totalQuestions;
+    if (!parsedData.readinessPercentage) {
+      parsedData.readinessPercentage = readinessPercent;
+    }
 
     return res.json({
       success: true,
       data: parsedData,
-      source: 'gemini-3.8-flash'
+      source: 'gemini-3.8-flash',
     });
   } catch (error: any) {
-    console.warn('Gemini final summary error, falling back to rubric:', error.message || error);
+    console.warn('Final summary generation error:', error.message || error);
     return res.json({
       success: true,
       data: generateFallbackSummary(),
-      source: 'fallback-on-error'
+      source: 'fallback-on-error',
     });
   }
 });

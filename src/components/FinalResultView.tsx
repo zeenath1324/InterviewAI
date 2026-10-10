@@ -7,7 +7,11 @@ import {
   Share2, 
   ChevronDown, 
   ChevronUp, 
-  ArrowRight
+  ArrowRight,
+  BookOpen,
+  Award,
+  TrendingUp,
+  Target
 } from 'lucide-react';
 import { FinalSummaryData, InterviewConfig, QAHistoryItem } from '../types/interview';
 import { generateFinalSummary } from '../services/interviewApi';
@@ -25,6 +29,7 @@ export const FinalResultView: React.FC<FinalResultViewProps> = ({
   onRestartSameSession,
   onChangeRole,
 }) => {
+  const selectedQuestionCount = config.selectedQuestionCount || config.totalQuestions || history.length || 10;
   const [summaryData, setSummaryData] = useState<FinalSummaryData | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState<boolean>(true);
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
@@ -38,6 +43,7 @@ export const FinalResultView: React.FC<FinalResultViewProps> = ({
           role: config.role,
           difficulty: config.difficulty,
           candidateName: config.candidateName,
+          mode: config.mode,
           history,
         });
         setSummaryData(result);
@@ -49,11 +55,17 @@ export const FinalResultView: React.FC<FinalResultViewProps> = ({
           : 7.0;
         setSummaryData({
           overallScore: avg,
+          technicalScore: avg,
+          communicationScore: avg,
+          problemSolvingScore: avg,
+          confidenceScore: avg,
           questionsAnswered: total,
           readinessPercentage: Math.min(96, Math.max(40, Math.round((avg / 10) * 100))),
           performanceLevel: avg >= 8 ? 'Placement Ready' : 'Promising Potential',
-          strongAreas: ['Core conceptual explanations', 'Good terminology usage'],
-          areasToImprove: ['Use the STAR framework for project questions', 'Mention concrete trade-offs'],
+          strongAreas: ['Core conceptual explanations', 'Good technical vocabulary'],
+          weakAreas: ['Use the STAR framework for project questions', 'Mention concrete trade-offs'],
+          recommendedTopics: [`${config.role} Core Principles`, 'System Debugging', 'STAR Method Delivery'],
+          personalizedSuggestions: ['Review the provided model answers', 'Practice verbal pacing under 2 minutes per question'],
           executiveSummary: `${config.candidateName} completed the mock interview for ${config.role}, showing a solid baseline of knowledge.`,
           nextSteps: ['Review the provided model answers', 'Practice verbal pacing under 2 minutes per question'],
         });
@@ -76,10 +88,14 @@ export const FinalResultView: React.FC<FinalResultViewProps> = ({
   const handleCopySummary = () => {
     if (!summaryData) return;
     const text = `InterviewAI Evaluation: ${config.candidateName}
-Role: ${config.role} (${config.difficulty})
+Role: ${config.role} (${config.difficulty} - Mode: ${config.mode})
 Overall Score: ${summaryData.overallScore}/10
+Technical Score: ${summaryData.technicalScore}/10
+Communication Score: ${summaryData.communicationScore}/10
+Problem Solving: ${summaryData.problemSolvingScore}/10
+Confidence: ${summaryData.confidenceScore}/10
 Readiness: ${summaryData.readinessPercentage}% (${summaryData.performanceLevel})
-Questions Answered: ${summaryData.questionsAnswered}`;
+Questions Completed: ${selectedQuestionCount} Questions Completed`;
     navigator.clipboard.writeText(text);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -89,9 +105,9 @@ Questions Answered: ${summaryData.questionsAnswered}`;
     return (
       <div className="max-w-2xl mx-auto px-4 py-20 text-center space-y-3">
         <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
-        <h3 className="text-base font-bold text-white">Generating Performance Summary</h3>
+        <h3 className="text-base font-bold text-white">Synthesizing Comprehensive Report</h3>
         <p className="text-xs text-slate-400">
-          Analyzing your responses and calculating campus interview readiness...
+          Grading technical depth, communication, and campus readiness...
         </p>
       </div>
     );
@@ -106,30 +122,44 @@ Questions Answered: ${summaryData.questionsAnswered}`;
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <span className="text-xs font-mono uppercase text-indigo-400 block">
-              Interview Completed · {config.role} ({config.difficulty})
+              Interview Evaluation · {config.role} ({config.difficulty}) · Mode: {config.mode}
             </span>
             <h1 className="text-2xl font-bold text-white font-display">
-              Results for {config.candidateName}
+              Readiness Report for {config.candidateName}
             </h1>
             <p className="text-xs text-slate-400">
-              Evaluated using standard campus hiring rubrics.
+              Evaluated using multi-criteria rubric standards.
             </p>
           </div>
 
-          {/* Readiness Metric Box */}
-          <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 flex items-center gap-4 shrink-0">
-            <div>
-              <div className="text-[11px] uppercase font-mono text-slate-400">
-                Readiness Score
-              </div>
-              <div className="text-2xl font-bold font-mono text-white">
-                {summaryData.readinessPercentage}%
+          {/* Readiness Metric & Completion Box */}
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <div className="p-3.5 sm:p-4 rounded-lg bg-slate-950 border border-slate-800 flex items-center gap-3">
+              <div>
+                <div className="text-[11px] uppercase font-mono text-emerald-400 font-semibold">
+                  Session Completed
+                </div>
+                <div className="text-base sm:text-lg font-bold font-mono text-white flex items-center gap-1.5 mt-0.5">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>{selectedQuestionCount} Questions Completed</span>
+                </div>
               </div>
             </div>
-            <div className="border-l border-slate-800 pl-3">
-              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-850 text-indigo-300 border border-slate-750">
-                {summaryData.performanceLevel}
-              </span>
+
+            <div className="p-3.5 sm:p-4 rounded-lg bg-slate-950 border border-slate-800 flex items-center gap-4">
+              <div>
+                <div className="text-[11px] uppercase font-mono text-slate-400">
+                  Readiness Score
+                </div>
+                <div className="text-2xl font-bold font-mono text-white">
+                  {summaryData.readinessPercentage}%
+                </div>
+              </div>
+              <div className="border-l border-slate-800 pl-3">
+                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-850 text-indigo-300 border border-slate-750">
+                  {summaryData.performanceLevel}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -169,38 +199,45 @@ Questions Answered: ${summaryData.questionsAnswered}`;
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-lg bg-slate-900 border border-slate-800">
-          <span className="text-[11px] uppercase font-mono text-slate-400 block">Overall Score</span>
+      {/* Multi-Dimensional Competency Scores */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span className="text-[10px] uppercase font-mono text-slate-400 block">Overall Score</span>
           <div className="text-xl font-bold text-white font-mono mt-1">
             {summaryData.overallScore} <span className="text-xs text-slate-500 font-normal">/ 10</span>
           </div>
         </div>
 
-        <div className="p-4 rounded-lg bg-slate-900 border border-slate-800">
-          <span className="text-[11px] uppercase font-mono text-slate-400 block">Questions</span>
-          <div className="text-xl font-bold text-white font-mono mt-1">
-            {summaryData.questionsAnswered} Answered
+        <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span className="text-[10px] uppercase font-mono text-slate-400 block">Technical</span>
+          <div className="text-xl font-bold text-indigo-300 font-mono mt-1">
+            {summaryData.technicalScore} <span className="text-xs text-slate-500 font-normal">/ 10</span>
           </div>
         </div>
 
-        <div className="p-4 rounded-lg bg-slate-900 border border-slate-800">
-          <span className="text-[11px] uppercase font-mono text-slate-400 block">Target Role</span>
-          <div className="text-sm font-bold text-white truncate mt-1.5">
-            {config.role}
+        <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span className="text-[10px] uppercase font-mono text-slate-400 block">Communication</span>
+          <div className="text-xl font-bold text-violet-300 font-mono mt-1">
+            {summaryData.communicationScore} <span className="text-xs text-slate-500 font-normal">/ 10</span>
           </div>
         </div>
 
-        <div className="p-4 rounded-lg bg-slate-900 border border-slate-800">
-          <span className="text-[11px] uppercase font-mono text-slate-400 block">Difficulty</span>
-          <div className="text-sm font-bold text-white truncate mt-1.5">
-            {config.difficulty}
+        <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span className="text-[10px] uppercase font-mono text-slate-400 block">Problem Solving</span>
+          <div className="text-xl font-bold text-emerald-300 font-mono mt-1">
+            {summaryData.problemSolvingScore} <span className="text-xs text-slate-500 font-normal">/ 10</span>
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+          <span className="text-[10px] uppercase font-mono text-slate-400 block">Confidence</span>
+          <div className="text-xl font-bold text-amber-300 font-mono mt-1">
+            {summaryData.confidenceScore} <span className="text-xs text-slate-500 font-normal">/ 10</span>
           </div>
         </div>
       </div>
 
-      {/* Executive Summary */}
+      {/* Recruiter's Executive Summary */}
       {summaryData.executiveSummary && (
         <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
@@ -212,12 +249,12 @@ Questions Answered: ${summaryData.questionsAnswered}`;
         </div>
       )}
 
-      {/* Strengths & Weaknesses */}
+      {/* Strengths & Weaknesses 2-Column Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Strong Areas */}
         <div className="p-5 rounded-lg bg-slate-900 border border-slate-800 space-y-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-            Verified Strengths
+            Verified Strong Areas
           </h3>
           <ul className="space-y-2 text-xs text-slate-300">
             {summaryData.strongAreas.map((area, idx) => (
@@ -232,10 +269,10 @@ Questions Answered: ${summaryData.questionsAnswered}`;
         {/* Areas to Improve */}
         <div className="p-5 rounded-lg bg-slate-900 border border-slate-800 space-y-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400">
-            Focus Areas Before Real Interviews
+            Areas Needing Improvement
           </h3>
           <ul className="space-y-2 text-xs text-slate-300">
-            {summaryData.areasToImprove.map((area, idx) => (
+            {summaryData.weakAreas.map((area, idx) => (
               <li key={idx} className="flex items-start gap-2">
                 <span className="text-amber-400 font-bold shrink-0">!</span>
                 <span>{area}</span>
@@ -245,27 +282,45 @@ Questions Answered: ${summaryData.questionsAnswered}`;
         </div>
       </div>
 
-      {/* Recommended Next Steps */}
-      {summaryData.nextSteps && summaryData.nextSteps.length > 0 && (
-        <div className="p-5 rounded-lg bg-slate-900 border border-slate-800 space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-            Recommended Action Items
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-            {summaryData.nextSteps.map((step, idx) => (
-              <div key={idx} className="p-3 rounded-lg bg-slate-950 border border-slate-850 text-xs text-slate-300 flex items-start gap-2">
-                <span className="font-mono text-indigo-400 font-bold shrink-0">{idx + 1}.</span>
-                <span>{step}</span>
-              </div>
-            ))}
+      {/* Recommended Topics & Personalized Suggestions */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {summaryData.recommendedTopics && summaryData.recommendedTopics.length > 0 && (
+          <div className="p-5 rounded-lg bg-slate-900 border border-slate-800 space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+              Recommended Topics to Study
+            </h3>
+            <ul className="space-y-2 text-xs text-slate-300">
+              {summaryData.recommendedTopics.map((topic, idx) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <span className="text-indigo-400 font-mono shrink-0">#</span>
+                  <span>{topic}</span>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-      )}
+        )}
+
+        {summaryData.personalizedSuggestions && summaryData.personalizedSuggestions.length > 0 && (
+          <div className="p-5 rounded-lg bg-slate-900 border border-slate-800 space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+              Personalized Improvement Suggestions
+            </h3>
+            <ul className="space-y-2 text-xs text-slate-300">
+              {summaryData.personalizedSuggestions.map((sug, idx) => (
+                <li key={idx} className="flex items-start gap-2">
+                  <span className="text-slate-400 font-bold shrink-0">→</span>
+                  <span>{sug}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
       {/* Question-by-Question Deep Dive */}
       <div className="space-y-3 pt-2">
         <h2 className="text-base font-bold text-white font-display">
-          Question-by-Question Review
+          Question-by-Question Review ({history.length} Questions)
         </h2>
 
         <div className="space-y-2">
@@ -283,7 +338,7 @@ Questions Answered: ${summaryData.questionsAnswered}`;
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span className="text-xs font-mono text-slate-400 shrink-0">
-                      Q{idx + 1}
+                      {item.isFollowUp ? 'Follow-up' : `Q${idx + 1}`}
                     </span>
                     <span className="text-xs sm:text-sm font-semibold text-white truncate">
                       {item.question.question}
@@ -291,9 +346,15 @@ Questions Answered: ${summaryData.questionsAnswered}`;
                   </div>
 
                   <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs font-mono text-slate-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                      {item.evaluation.score} / 10
-                    </span>
+                    {item.skipped ? (
+                      <span className="text-xs font-mono text-slate-500 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                        Skipped
+                      </span>
+                    ) : (
+                      <span className="text-xs font-mono text-slate-300 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                        {item.evaluation.score} / 10
+                      </span>
+                    )}
                     {isExpanded ? (
                       <ChevronUp className="w-4 h-4 text-slate-400" />
                     ) : (
@@ -306,36 +367,38 @@ Questions Answered: ${summaryData.questionsAnswered}`;
                   <div className="p-4 bg-slate-950 border-t border-slate-800 space-y-3 text-xs">
                     <div>
                       <span className="text-[10px] font-mono uppercase text-slate-400 block mb-1">
-                        Your Answer:
+                        Candidate Answer:
                       </span>
                       <p className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 leading-relaxed italic">
                         "{item.answer}"
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                        <strong className="text-emerald-400 block mb-1">Strengths:</strong>
-                        <ul className="list-disc list-inside space-y-0.5 text-slate-300">
-                          {item.evaluation.strengths.map((s, i) => (
-                            <li key={i}>{s}</li>
-                          ))}
-                        </ul>
-                      </div>
+                    {!item.skipped && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                          <strong className="text-emerald-400 block mb-1">Strengths:</strong>
+                          <ul className="list-disc list-inside space-y-0.5 text-slate-300">
+                            {item.evaluation.strengths.map((s, i) => (
+                              <li key={i}>{s}</li>
+                            ))}
+                          </ul>
+                        </div>
 
-                      <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
-                        <strong className="text-amber-400 block mb-1">Needs Improvement:</strong>
-                        <ul className="list-disc list-inside space-y-0.5 text-slate-300">
-                          {item.evaluation.weaknesses.map((w, i) => (
-                            <li key={i}>{w}</li>
-                          ))}
-                        </ul>
+                        <div className="p-3 rounded-lg bg-slate-900 border border-slate-800">
+                          <strong className="text-amber-400 block mb-1">Needs Improvement:</strong>
+                          <ul className="list-disc list-inside space-y-0.5 text-slate-300">
+                            {item.evaluation.weaknesses.map((w, i) => (
+                              <li key={i}>{w}</li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div>
                       <span className="text-[10px] font-mono uppercase text-slate-400 block mb-1">
-                        Ideal Sample Answer:
+                        Model Sample Answer:
                       </span>
                       <p className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 leading-relaxed whitespace-pre-line">
                         {item.evaluation.sampleAnswer}

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Terminal, Menu, X, ArrowRight, BookOpen, BarChart2, Info } from 'lucide-react';
+import { Terminal, Menu, X, ArrowRight, Sparkles } from 'lucide-react';
 
 interface NavbarProps {
   onStartClick: () => void;
   onOpenInfo: (tab: 'howItWorks' | 'rubric' | 'tips' | 'about') => void;
+  onOpenPrompts: () => void;
   activeScreen: string;
   onGoHome: () => void;
 }
@@ -11,6 +12,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onStartClick,
   onOpenInfo,
+  onOpenPrompts,
   activeScreen,
   onGoHome,
 }) => {
@@ -18,6 +20,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const handleNavClick = (tab: 'howItWorks' | 'rubric' | 'tips' | 'about') => {
     onOpenInfo(tab);
+    setMobileMenuOpen(false);
+  };
+
+  const handlePromptsClick = () => {
+    onOpenPrompts();
     setMobileMenuOpen(false);
   };
 
@@ -38,7 +45,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               InterviewAI
             </span>
             <span className="hidden sm:inline-block text-[11px] font-mono text-slate-400 border border-slate-800 px-1.5 py-0.5 rounded bg-slate-900">
-              fresher.v1
+              fresher.v2
             </span>
           </div>
         </button>
@@ -56,6 +63,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="hover:text-white transition-colors py-1 focus:outline-none focus-visible:underline"
           >
             Grading Rubric
+          </button>
+          <button
+            onClick={handlePromptsClick}
+            className={`flex items-center gap-1.5 transition-colors py-1 focus:outline-none focus-visible:underline ${
+              activeScreen === 'prompts' ? 'text-indigo-400 font-semibold' : 'hover:text-white text-slate-300'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Prompt Engineering</span>
           </button>
           <button
             onClick={() => handleNavClick('tips')}
@@ -115,6 +131,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="w-full text-left py-2 text-sm text-slate-300 hover:text-white border-b border-slate-800/60"
           >
             Grading Rubric
+          </button>
+          <button
+            onClick={handlePromptsClick}
+            className="w-full text-left py-2 text-sm text-indigo-400 hover:text-indigo-300 border-b border-slate-800/60 flex items-center gap-2"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Prompt Engineering Guide</span>
           </button>
           <button
             onClick={() => handleNavClick('tips')}

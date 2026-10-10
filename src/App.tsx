@@ -9,15 +9,17 @@ import { HeroSection } from './components/HeroSection';
 import { InterviewSetupModal } from './components/InterviewSetupModal';
 import { InterviewRoom } from './components/InterviewRoom';
 import { FinalResultView } from './components/FinalResultView';
+import { PromptEngineeringSection } from './components/PromptEngineeringSection';
 import { InfoModal } from './components/InfoModal';
 import { Footer } from './components/Footer';
-import { AppScreen, InterviewConfig, JobRole, QAHistoryItem } from './types/interview';
+import { AppScreen, InterviewConfig, InterviewMode, JobRole, QAHistoryItem } from './types/interview';
 
 export default function App() {
   // Navigation & Screen Management
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('home');
   const [isSetupOpen, setIsSetupOpen] = useState<boolean>(false);
   const [preselectedRole, setPreselectedRole] = useState<JobRole>('Software Developer');
+  const [preselectedMode, setPreselectedMode] = useState<InterviewMode>('mixed');
 
   // Resource Center Modal
   const [infoTab, setInfoTab] = useState<'howItWorks' | 'rubric' | 'tips' | 'about' | null>(null);
@@ -27,16 +29,17 @@ export default function App() {
     candidateName: 'Alex Johnson',
     role: 'Software Developer',
     difficulty: 'Beginner',
-    totalQuestions: 5,
+    mode: 'mixed',
+    totalQuestions: 10,
+    selectedQuestionCount: 10,
   });
 
   const [sessionHistory, setSessionHistory] = useState<QAHistoryItem[]>([]);
 
-  // Trigger setup modal with optional pre-selected role
-  const handleOpenSetup = (role?: JobRole) => {
-    if (role) {
-      setPreselectedRole(role);
-    }
+  // Trigger setup modal with optional pre-selected role or mode
+  const handleOpenSetup = (role?: JobRole, mode?: InterviewMode) => {
+    if (role) setPreselectedRole(role);
+    if (mode) setPreselectedMode(mode);
     setIsSetupOpen(true);
   };
 
@@ -69,12 +72,19 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Navigate to Prompt Engineering section
+  const handleOpenPrompts = () => {
+    setCurrentScreen('prompts');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30 selection:text-indigo-200">
       {/* Universal Top Bar */}
       <Navbar
         onStartClick={() => handleOpenSetup()}
         onOpenInfo={(tab) => setInfoTab(tab)}
+        onOpenPrompts={handleOpenPrompts}
         activeScreen={currentScreen}
         onGoHome={handleGoHome}
       />
@@ -83,9 +93,14 @@ export default function App() {
       <main className="flex-1 w-full">
         {currentScreen === 'home' && (
           <HeroSection
-            onStartInterview={(role) => handleOpenSetup(role)}
+            onStartInterview={(role, mode) => handleOpenSetup(role, mode)}
             onOpenInfo={(tab) => setInfoTab(tab)}
+            onOpenPrompts={handleOpenPrompts}
           />
+        )}
+
+        {currentScreen === 'prompts' && (
+          <PromptEngineeringSection />
         )}
 
         {currentScreen === 'interview' && (
@@ -118,6 +133,7 @@ export default function App() {
         onClose={() => setIsSetupOpen(false)}
         onStartSession={handleStartSession}
         initialRole={preselectedRole}
+        initialMode={preselectedMode}
       />
 
       {/* Resource Center / Info Modal */}

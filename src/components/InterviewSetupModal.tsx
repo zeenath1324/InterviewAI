@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   X, 
   ArrowRight, 
@@ -8,15 +8,22 @@ import {
   Layout, 
   Cpu, 
   Sparkles,
-  Check
+  Check, 
+  Upload, 
+  FileText, 
+  Mic, 
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
-import { DifficultyLevel, InterviewConfig, JobRole } from '../types/interview';
+import { DifficultyLevel, InterviewConfig, InterviewMode, JobRole, ResumeData } from '../types/interview';
+import { uploadAndParseResume, parseResumeText } from '../services/interviewApi';
 
 interface InterviewSetupModalProps {
   isOpen: boolean;
   onClose: () => void;
   onStartSession: (config: InterviewConfig) => void;
   initialRole?: JobRole;
+  initialMode?: InterviewMode;
 }
 
 export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
@@ -24,13 +31,25 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
   onClose,
   onStartSession,
   initialRole = 'Software Developer',
+  initialMode = 'mixed',
 }) => {
   const [candidateName, setCandidateName] = useState('');
   const [selectedRole, setSelectedRole] = useState<JobRole>(initialRole);
   const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel>('Beginner');
-  const [totalQuestions, setTotalQuestions] = useState<number>(5);
+  const [selectedMode, setSelectedMode] = useState<InterviewMode>(initialMode);
+  const [selectedQuestionCount, setSelectedQuestionCount] = useState<number>(10);
   const [focusArea, setFocusArea] = useState('');
+  const [voiceMode, setVoiceMode] = useState<boolean>(false);
+
+  // Resume Upload State
+  const [resumeData, setResumeData] = useState<ResumeData | null>(null);
+  const [isUploadingResume, setIsUploadingResume] = useState<boolean>(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [showPasteResume, setShowPasteResume] = useState<boolean>(false);
+  const [pastedResumeText, setPastedResumeText] = useState<string>('');
+
   const [errorMessage, setErrorMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isOpen) return null;
 
@@ -72,6 +91,38 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
     },
   ];
 
+  const modes: Array<{
+    id: InterviewMode;
+    label: string;
+    description: string;
+  }> = [
+    {
+      id: 'mixed',
+      label: 'Mixed Interview',
+      description: 'Balanced mix of technical concepts, scenario problem-solving, and behavioral questions.',
+    },
+    {
+      id: 'technical',
+      label: 'Technical Interview',
+      description: 'Deep-dive into role-specific algorithms, code patterns, SQL, Python, or systems.',
+    },
+    {
+      id: 'hr',
+      label: 'HR & Behavioral',
+      description: 'Self-introduction, conflict resolution, strengths, weaknesses, and teamwork (STAR format).',
+    },
+    {
+      id: 'project',
+      label: 'Project-Based',
+      description: 'Explores your academic project architecture, blockers, debugging, and trade-offs.',
+    },
+    {
+      id: 'resume',
+      label: 'Resume-Based',
+      description: 'Questions tailored directly to your uploaded resume skills, projects, and internships.',
+    },
+  ];
+
   const difficulties: Array<{
     id: DifficultyLevel;
     label: string;
@@ -94,6 +145,55 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
     },
   ];
 
+  // Handle PDF Upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setResumeError('Please upload a PDF document.');
+      return;
+    }
+
+    setIsUploadingResume(true);
+    setResumeError(null);
+
+    try {
+      const parsed = await uploadAndParseResume(file);
+      setResumeData(parsed);
+      setSelectedMode('resume');
+      if (parsed.candidateName && parsed.candidateName !== 'Candidate' && !candidateName) {
+        setCandidateName(parsed.candidateName);
+      }
+    } catch (err: any) {
+      console.error('Resume upload error:', err);
+      setResumeError(err.message || 'Failed to parse resume PDF. You can paste the text instead.');
+    } finally {
+      setIsUploadingResume(false);
+    }
+  };
+
+  // Handle Paste Resume Text
+  const handleParsePastedText = async () => {
+    if (!pastedResumeText.trim()) return;
+    setIsUploadingResume(true);
+    setResumeError(null);
+
+    try {
+      const parsed = await parseResumeText(pastedResumeText);
+      setResumeData(parsed);
+      setSelectedMode('resume');
+      setShowPasteResume(false);
+      if (parsed.candidateName && parsed.candidateName !== 'Candidate' && !candidateName) {
+        setCandidateName(parsed.candidateName);
+      }
+    } catch (err: any) {
+      setResumeError('Failed to parse text. Please try again.');
+    } finally {
+      setIsUploadingResume(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = candidateName.trim();
@@ -102,20 +202,29 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
       return;
     }
 
+    if (selectedMode === 'resume' && !resumeData) {
+      setErrorMessage('Please upload your resume PDF or paste resume text for a Resume-Based interview.');
+      return;
+    }
+
     setErrorMessage('');
     onStartSession({
       candidateName: trimmed,
       role: selectedRole,
       difficulty: selectedDifficulty,
-      totalQuestions,
+      mode: selectedMode,
+      totalQuestions: selectedQuestionCount,
+      selectedQuestionCount,
       focusArea: focusArea.trim() || undefined,
+      resumeData: resumeData || undefined,
+      voiceMode,
     });
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
       <div 
-        className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-6 sm:p-7 my-8 text-left"
+        className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-6 sm:p-7 my-8 text-left max-h-[90vh] overflow-y-auto"
         role="dialog"
         aria-modal="true"
       >
@@ -123,10 +232,10 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div>
             <h2 className="text-lg font-bold text-white font-display">
-              Interview Setup
+              Configure Interview Session
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Set your target role and question preferences.
+              Select interview mode, role, difficulty, and optional resume.
             </p>
           </div>
           <button
@@ -170,10 +279,160 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
             )}
           </div>
 
+          {/* Interview Mode Selector */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+              Interview Mode
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {modes.map((m) => {
+                const isSelected = selectedMode === m.id;
+                return (
+                  <button
+                    type="button"
+                    key={m.id}
+                    onClick={() => setSelectedMode(m.id)}
+                    className={`p-3 rounded-lg border text-left transition-colors ${
+                      isSelected
+                        ? 'bg-slate-850 border-indigo-500 text-white'
+                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold text-white">{m.label}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400" />}
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-tight">
+                      {m.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Optional Resume Upload (Highlights if Resume Mode is selected) */}
+          <div className="p-4 rounded-lg bg-slate-950 border border-slate-850 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Resume Upload (Optional)</span>
+                </label>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Upload your PDF resume to generate questions grounded in your real projects.
+                </p>
+              </div>
+
+              {resumeData && (
+                <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Resume Attached</span>
+                </span>
+              )}
+            </div>
+
+            {/* Upload Area */}
+            {!resumeData ? (
+              <div className="space-y-2">
+                <div className="flex flex-col sm:flex-row items-center gap-2">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileUpload}
+                    accept="application/pdf"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingResume}
+                    className="w-full sm:w-auto px-4 py-2 text-xs font-medium text-white bg-slate-850 hover:bg-slate-800 border border-slate-700 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isUploadingResume ? (
+                      <>
+                        <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Extracting Resume Content...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload PDF Resume</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowPasteResume(!showPasteResume)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 underline"
+                  >
+                    {showPasteResume ? 'Cancel text paste' : 'Or paste resume text'}
+                  </button>
+                </div>
+
+                {showPasteResume && (
+                  <div className="space-y-2 pt-2">
+                    <textarea
+                      rows={4}
+                      value={pastedResumeText}
+                      onChange={(e) => setPastedResumeText(e.target.value)}
+                      placeholder="Paste your resume sections (Skills, Projects, Education, Internships)..."
+                      className="w-full p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-white text-xs placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleParsePastedText}
+                      disabled={isUploadingResume || !pastedResumeText.trim()}
+                      className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg disabled:opacity-50"
+                    >
+                      Extract & Attach
+                    </button>
+                  </div>
+                )}
+
+                {resumeError && (
+                  <p className="text-xs text-rose-400 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    <span>{resumeError}</span>
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg bg-slate-900 border border-slate-800 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-200">
+                    {resumeData.fileName || 'Resume parsed successfully'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setResumeData(null)}
+                    className="text-[11px] text-slate-400 hover:text-rose-400"
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                <div className="text-[11px] text-slate-400 space-y-1">
+                  <div>
+                    <strong className="text-slate-300">Extracted Skills:</strong>{' '}
+                    {resumeData.skills?.slice(0, 5).join(', ') || 'Various technical skills'}
+                  </div>
+                  {resumeData.projects && resumeData.projects.length > 0 && (
+                    <div>
+                      <strong className="text-slate-300">Projects Detected:</strong>{' '}
+                      {resumeData.projects.map((p) => p.title).join(', ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Role Selection */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Select Job Role
+              Target Job Role
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {roles.map((r) => {
@@ -212,7 +471,7 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
           {/* Difficulty Level */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Select Difficulty
+              Difficulty Tier
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {difficulties.map((diff) => {
@@ -241,25 +500,25 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
             </div>
           </div>
 
-          {/* Question Count & Focus Area */}
+          {/* Question Count, Topic Focus & Voice Mode */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                Questions
+                Number of Questions
               </label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[3, 5, 7].map((num) => (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {[5, 10, 15, 20].map((num) => (
                   <button
                     type="button"
                     key={num}
-                    onClick={() => setTotalQuestions(num)}
-                    className={`py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                      totalQuestions === num
-                        ? 'bg-indigo-600 text-white border-indigo-500'
+                    onClick={() => setSelectedQuestionCount(num)}
+                    className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-colors text-center ${
+                      selectedQuestionCount === num
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
                         : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
                     }`}
                   >
-                    {num} Qs
+                    {num} Questions
                   </button>
                 ))}
               </div>
@@ -273,10 +532,34 @@ export const InterviewSetupModal: React.FC<InterviewSetupModalProps> = ({
                 type="text"
                 value={focusArea}
                 onChange={(e) => setFocusArea(e.target.value)}
-                placeholder="e.g. React, SQL, Figma"
+                placeholder="e.g. React, SQL, Power BI, Transformers"
                 className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-white text-xs placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
+          </div>
+
+          {/* Voice Mode Toggle */}
+          <div className="p-3 rounded-lg bg-slate-950 border border-slate-850 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Mic className="w-4 h-4 text-indigo-400" />
+              <div>
+                <span className="text-xs font-semibold text-white block">Voice Interview Mode</span>
+                <span className="text-[11px] text-slate-400">Interviewer speaks questions; you answer verbally with microphone.</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setVoiceMode(!voiceMode)}
+              className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors ${
+                voiceMode ? 'bg-indigo-600' : 'bg-slate-800'
+              }`}
+            >
+              <div
+                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                  voiceMode ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
 
           {/* Modal Actions */}

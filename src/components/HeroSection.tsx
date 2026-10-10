@@ -6,22 +6,64 @@ import {
   Layout, 
   Cpu, 
   Sparkles, 
-  Check, 
-  BookOpen,
+  FileText,
+  MessageSquare,
+  Briefcase,
+  Layers,
   Terminal,
-  HelpCircle
+  BookOpen
 } from 'lucide-react';
-import { JobRole } from '../types/interview';
+import { InterviewMode, JobRole } from '../types/interview';
 
 interface HeroSectionProps {
-  onStartInterview: (preselectedRole?: JobRole) => void;
+  onStartInterview: (preselectedRole?: JobRole, mode?: InterviewMode) => void;
   onOpenInfo: (tab: 'howItWorks' | 'rubric' | 'tips' | 'about') => void;
+  onOpenPrompts: () => void;
 }
 
 export const HeroSection: React.FC<HeroSectionProps> = ({
   onStartInterview,
   onOpenInfo,
+  onOpenPrompts,
 }) => {
+  const interviewModes: Array<{
+    id: InterviewMode;
+    label: string;
+    description: string;
+    icon: React.ReactNode;
+  }> = [
+    {
+      id: 'technical',
+      label: 'Technical Interview',
+      description: 'Core concepts, algorithms, SQL, Python & system questions.',
+      icon: <Code className="w-4 h-4 text-indigo-400" />,
+    },
+    {
+      id: 'hr',
+      label: 'HR & Behavioral',
+      description: 'Tell me about yourself, strengths, conflict resolution & teamwork.',
+      icon: <MessageSquare className="w-4 h-4 text-cyan-400" />,
+    },
+    {
+      id: 'project',
+      label: 'Project Deep-Dive',
+      description: 'Explain your project, biggest challenges, debugging & architecture.',
+      icon: <Briefcase className="w-4 h-4 text-amber-400" />,
+    },
+    {
+      id: 'resume',
+      label: 'Resume-Based',
+      description: 'Upload your PDF resume to generate questions grounded in your projects.',
+      icon: <FileText className="w-4 h-4 text-emerald-400" />,
+    },
+    {
+      id: 'mixed',
+      label: 'Mixed Simulator',
+      description: 'Realistic placement simulation combining technical, project & HR rounds.',
+      icon: <Layers className="w-4 h-4 text-violet-400" />,
+    },
+  ];
+
   const roles: Array<{
     name: JobRole;
     icon: React.ReactNode;
@@ -34,41 +76,41 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
       name: 'Software Developer',
       icon: <Code className="w-4 h-4 text-indigo-400" />,
       tagline: 'Web, Backend & Algorithms',
-      description: 'Focuses on asynchronous JavaScript, OOP concepts, RESTful API design, database transactions, and data structures.',
-      sampleQuestion: 'Explain the difference between synchronous and asynchronous execution in JavaScript.',
-      topics: ['Async / Promises', 'REST APIs', 'SQL vs NoSQL', 'OOP Principles'],
+      description: 'Focuses on OOP concepts, asynchronous JavaScript, APIs, SQL vs NoSQL, and data structures.',
+      sampleQuestion: 'What is the difference between a process and a thread?',
+      topics: ['Async / Promises', 'REST APIs', 'SQL Joins', 'OOP Principles'],
     },
     {
       name: 'Data Analyst',
       icon: <Database className="w-4 h-4 text-cyan-400" />,
       tagline: 'SQL, Python & Exploratory Analysis',
-      description: 'Focuses on SQL joins and window functions, handling missing data, statistical measures, and business cohort retention.',
-      sampleQuestion: 'When would you use DENSE_RANK instead of RANK in a SQL window query?',
-      topics: ['SQL Joins', 'Window Functions', 'Data Cleaning', 'Mean vs Median'],
+      description: 'Focuses on SQL queries, WHERE vs HAVING, window functions, Python dictionaries, and Power BI DAX.',
+      sampleQuestion: 'What is the difference between WHERE and HAVING in SQL?',
+      topics: ['SQL Joins', 'Window Functions', 'Power Query', 'Calculated Columns'],
     },
     {
       name: 'UI/UX Designer',
       icon: <Layout className="w-4 h-4 text-violet-400" />,
       tagline: 'Design Systems & Usability',
-      description: 'Focuses on user research heuristics, visual hierarchy, Figma component architecture, and WCAG accessibility standards.',
-      sampleQuestion: 'How do you conduct a usability test on a wireframe prototype without biasing the user?',
+      description: 'Focuses on user research heuristics, visual hierarchy, Figma component architecture, and WCAG standards.',
+      sampleQuestion: 'How do you conduct an unbiased usability test on a prototype?',
       topics: ['Design Systems', 'WCAG AA', 'User Testing', 'Visual Hierarchy'],
     },
     {
       name: 'AI/ML Engineer',
       icon: <Cpu className="w-4 h-4 text-emerald-400" />,
       tagline: 'ML Foundations & Generative AI',
-      description: 'Focuses on overfitting regularization, evaluation metrics (precision vs recall), the Transformer attention mechanism, and RAG.',
-      sampleQuestion: 'Why is precision more critical than accuracy in severe class imbalance problems?',
+      description: 'Focuses on supervised learning, overfitting, CNN vs RNN, and Retrieval-Augmented Generation (RAG).',
+      sampleQuestion: 'What is overfitting and what techniques prevent it?',
       topics: ['Supervised Learning', 'Overfitting', 'Transformers', 'RAG Pipelines'],
     },
     {
       name: 'Prompt Engineer',
       icon: <Sparkles className="w-4 h-4 text-amber-400" />,
       tagline: 'Context Framing & Agent Workflows',
-      description: 'Focuses on few-shot prompting, chain-of-thought reasoning, prompt injection defenses, and systematic prompt evaluations.',
-      sampleQuestion: 'How does Chain-of-Thought prompting improve multi-step logical reasoning in LLMs?',
-      topics: ['Chain-of-Thought', 'Few-Shot Evals', 'Injection Defense', 'ReAct Agents'],
+      description: 'Focuses on zero-shot vs few-shot prompting, Chain-of-Thought reasoning, and reducing hallucinations.',
+      sampleQuestion: 'What is the difference between zero-shot and few-shot prompting?',
+      topics: ['Chain-of-Thought', 'Few-Shot Evals', 'Injection Defense', 'Hallucinations'],
     },
   ];
 
@@ -76,12 +118,10 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16 space-y-16">
       {/* Hero Section */}
       <section className="text-center max-w-3xl mx-auto space-y-6">
-        {/* Subtle Project Tag */}
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-slate-900 border border-slate-800 text-slate-300 text-xs font-mono">
-          <span>College Placement & Fresher Preparation Tool</span>
+          <span>AI Interview Simulator · Fresher Placement Prep</span>
         </div>
 
-        {/* Title and Subtitle as strictly required */}
         <div className="space-y-3">
           <h1 className="text-4xl sm:text-5xl font-extrabold text-white tracking-tight font-display">
             InterviewAI
@@ -92,7 +132,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         </div>
 
         <p className="text-slate-400 text-sm sm:text-base leading-relaxed max-w-2xl mx-auto">
-          Built specifically for college students and fresh graduates preparing for campus placement rounds. Practice real technical questions one-by-one, get actionable 0–10 feedback, and review model answers.
+          Practice realistic job interviews with structured questions, dynamic follow-ups based on your exact answers, and multi-criteria scoring across technical accuracy, communication, and confidence.
         </p>
 
         {/* Primary Action Buttons */}
@@ -106,47 +146,87 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
           </button>
 
           <button
-            onClick={() => onOpenInfo('howItWorks')}
-            className="w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-lg transition-colors"
+            onClick={() => onStartInterview(undefined, 'resume')}
+            className="w-full sm:w-auto px-5 py-3 text-sm font-medium text-slate-200 hover:text-white bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-lg transition-colors flex items-center justify-center gap-2"
           >
-            How It Evaluates Answers
+            <FileText className="w-4 h-4 text-emerald-400" />
+            <span>Upload Resume for Custom Q&A</span>
           </button>
         </div>
 
-        {/* Realistic Project Benchmark Pills */}
+        {/* Metric Badges */}
         <div className="pt-6 border-t border-slate-900 grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-          <div className="p-2 border border-slate-850 rounded-lg bg-slate-900/40">
-            <div className="text-lg font-bold text-white font-mono">5 Tech Roles</div>
-            <div className="text-xs text-slate-400">Software, Data, UI/UX, AI</div>
+          <div className="p-2.5 border border-slate-850 rounded-lg bg-slate-900/40">
+            <div className="text-lg font-bold text-white font-mono">5 Interview Modes</div>
+            <div className="text-xs text-slate-400">HR, Tech, Project, Resume</div>
           </div>
-          <div className="p-2 border border-slate-850 rounded-lg bg-slate-900/40">
-            <div className="text-lg font-bold text-white font-mono">0–10 Rubric</div>
-            <div className="text-xs text-slate-400">Strict Scoring Criteria</div>
+          <div className="p-2.5 border border-slate-850 rounded-lg bg-slate-900/40">
+            <div className="text-lg font-bold text-white font-mono">Dynamic Follow-ups</div>
+            <div className="text-xs text-slate-400">Drills into Your Answers</div>
           </div>
-          <div className="p-2 border border-slate-850 rounded-lg bg-slate-900/40">
-            <div className="text-lg font-bold text-white font-mono">Adaptive Q&A</div>
-            <div className="text-xs text-slate-400">Builds on Performance</div>
+          <div className="p-2.5 border border-slate-850 rounded-lg bg-slate-900/40">
+            <div className="text-lg font-bold text-white font-mono">Resume PDF Upload</div>
+            <div className="text-xs text-slate-400">Projects & Skills Grounding</div>
           </div>
-          <div className="p-2 border border-slate-850 rounded-lg bg-slate-900/40">
-            <div className="text-lg font-bold text-white font-mono">STAR Method</div>
-            <div className="text-xs text-slate-400">Structured Guidance</div>
+          <div className="p-2.5 border border-slate-850 rounded-lg bg-slate-900/40">
+            <div className="text-lg font-bold text-white font-mono">Multi-Score Report</div>
+            <div className="text-xs text-slate-400">Tech, Clarity & Confidence</div>
           </div>
+        </div>
+      </section>
+
+      {/* Interview Modes Grid */}
+      <section className="space-y-4">
+        <div className="border-b border-slate-850 pb-3 flex flex-col sm:flex-row sm:items-end justify-between gap-1 text-left">
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-white font-display">
+              Select Your Interview Mode
+            </h2>
+            <p className="text-xs text-slate-400">
+              Practice specific interview rounds commonly conducted during campus hiring.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {interviewModes.map((mode) => (
+            <button
+              key={mode.id}
+              onClick={() => onStartInterview(undefined, mode.id)}
+              className="p-4 rounded-xl bg-slate-900 border border-slate-800 hover:border-indigo-500/60 transition-colors text-left flex items-start gap-3 group"
+            >
+              <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 shrink-0">
+                {mode.icon}
+              </div>
+              <div className="space-y-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-white group-hover:text-indigo-300 transition-colors">
+                    {mode.label}
+                  </h3>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {mode.description}
+                </p>
+              </div>
+            </button>
+          ))}
         </div>
       </section>
 
       {/* Target Roles Grid */}
       <section className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-slate-850 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 border-b border-slate-850 pb-4 text-left">
           <div>
             <h2 className="text-xl sm:text-2xl font-bold text-white font-display">
-              Select a Role to Practice
+              Explore Practice Roles & Question Banks
             </h2>
             <p className="text-xs sm:text-sm text-slate-400 mt-0.5">
-              Choose your target career path to configure questions and difficulty.
+              Structured question bank with beginner, intermediate, and advanced levels.
             </p>
           </div>
           <span className="text-xs text-slate-400 font-mono">
-            Available: Beginner · Intermediate · Advanced
+            HR · SQL · Python · Power BI · AI/ML
           </span>
         </div>
 
@@ -177,7 +257,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
                 <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-850 text-xs space-y-1">
                   <span className="text-[10px] uppercase font-mono text-slate-400 block">
-                    Sample Question Preview:
+                    Sample Question:
                   </span>
                   <p className="text-slate-200 italic line-clamp-2">
                     "{role.sampleQuestion}"
@@ -207,65 +287,65 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
             </div>
           ))}
 
-          {/* Quick Custom Setup Card */}
-          <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between space-y-4">
+          {/* Prompt Engineering Callout Card */}
+          <div className="p-5 rounded-xl bg-slate-900 border border-slate-800 flex flex-col justify-between space-y-4 text-left">
             <div className="space-y-2">
               <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 w-fit">
-                <Terminal className="w-4 h-4 text-indigo-400" />
+                <Sparkles className="w-4 h-4 text-indigo-400" />
               </div>
               <h3 className="text-base font-bold text-white">
-                Custom Topic Focus
+                Prompt Engineering Guide
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Have an upcoming interview for a specific company or university subject? You can specify custom topics like React Hooks, Dynamic Programming, or Docker.
+                Learn the production prompt patterns used in this app: Role Prompting, Few-Shot In-Context Scoring, Structured JSON schemas, and Dynamic Follow-Up Chaining.
               </p>
             </div>
 
             <button
-              onClick={() => onStartInterview()}
+              onClick={onOpenPrompts}
               className="w-full py-2.5 px-3 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors flex items-center justify-center gap-1.5"
             >
-              <span>Custom Interview Setup</span>
+              <span>Explore Prompt Engineering</span>
               <ArrowRight className="w-3 h-3" />
             </button>
           </div>
         </div>
       </section>
 
-      {/* Why This Project Was Built (Student Portfolio Authenticity) */}
+      {/* Educational Background & Engineering Decisions */}
       <section className="p-6 sm:p-8 rounded-xl bg-slate-900/70 border border-slate-800 space-y-4 text-left">
         <div className="flex items-center gap-2">
           <BookOpen className="w-4 h-4 text-indigo-400" />
           <h2 className="text-base font-bold text-white uppercase tracking-wider font-mono text-xs">
-            Student Project Background & Architecture
+            Student Project Architecture & How It Works
           </h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
           <div className="space-y-1.5">
             <h3 className="text-sm font-semibold text-white">
-              The Placement Problem
+              1. Curated Question Bank
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Most freshers fail technical rounds not because of a lack of coding knowledge, but because they freeze or ramble without structured articulation.
+              Standard fresher questions across HR, SQL, Python, Power BI, and ML are categorized with difficulty levels and benchmark key points.
             </p>
           </div>
 
           <div className="space-y-1.5">
             <h3 className="text-sm font-semibold text-white">
-              The Gemini Integration
+              2. Dynamic Follow-Up Chaining
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              We pass the candidate's answer and expected criteria through an Express backend route using Google's GenAI SDK, returning structured rubric feedback.
+              Instead of static question hopping, Gemini analyzes your response and generates a targeted follow-up question to test depth.
             </p>
           </div>
 
           <div className="space-y-1.5">
             <h3 className="text-sm font-semibold text-white">
-              The STAR Feedback Loop
+              3. Secure Server-Side Routing
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Each response provides a numerical grade, identified technical strengths, missed edge cases, and an ideal model answer you can learn from.
+              The Google GenAI SDK runs strictly in the Express server (<code className="font-mono text-slate-300">server.ts</code>), keeping credentials private and safe.
             </p>
           </div>
         </div>
